@@ -10,8 +10,6 @@ A Discord bot built for the **Tangle Crew** clan in [Old School RuneScape](https
 
 ## Tangle Crew
 
-![Tangle Crew Logo](images/TCLogo.jpg)
-
 | | |
 |---|---|
 | **Discord** | [discord.gg/na6rhxJ3fQ](https://discord.gg/na6rhxJ3fQ) |
