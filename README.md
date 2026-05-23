@@ -48,28 +48,6 @@ Spins an animated prize wheel and picks one or more random winners from a list o
 
 ---
 
-### ⚔️ `/rank` — Clan Rank Management
-
-Manages OSRS clan ranks as Discord roles.
-
-| Subcommand | Description |
-|------------|-------------|
-| `/rank set <member> <rank>` | Assign a clan rank to a member (creates the role if it doesn't exist) |
-| `/rank check <member>` | View a member's current rank and when it was last updated |
-| `/rank list` | List all tracked clan members and their ranks |
-
-Requires **Manage Roles** permission.
-
----
-
-### 🔄 `/syncranks` — Bulk Rank Sync
-
-Pulls rank data from a linked OneDrive spreadsheet and updates every member's Discord role in one go. Reports how many were updated, unchanged, or not found.
-
-Requires **Manage Roles** permission.
-
----
-
 ### 📋 `/getdiscids` — Export Member List
 
 Exports all non-bot server members to a CSV file with their Discord ID, username, and nickname. Useful for building or updating the rank spreadsheet before running `/syncranks`.
