@@ -1,10 +1,24 @@
 const { Events, MessageFlags } = require('discord.js');
 const { restoreReminders } = require('../utils/scheduler');
+const { handleSubmissionMessage, loadSubmissionConfig } = require('../utils/submissionIntake');
 
 function loadEvents(client) {
+  const submissionConfig = loadSubmissionConfig();
+  if (submissionConfig.enabled) {
+    console.log('Discord submission intake enabled.');
+  }
+
   client.once(Events.ClientReady, async (c) => {
     console.log(`Logged in as ${c.user.tag}`);
     restoreReminders(client);
+  });
+
+  client.on(Events.MessageCreate, async (message) => {
+    try {
+      await handleSubmissionMessage(message, submissionConfig);
+    } catch (err) {
+      console.error('Submission intake error:', err);
+    }
   });
 
   client.on(Events.InteractionCreate, async (interaction) => {

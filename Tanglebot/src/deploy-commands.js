@@ -3,6 +3,13 @@ const { REST, Routes } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 
+const REQUIRED_ENV_KEYS = ['DISCORD_TOKEN', 'CLIENT_ID', 'CLAN_ID'];
+
+const missingEnv = REQUIRED_ENV_KEYS.filter(key => !process.env[key]);
+if (missingEnv.length > 0) {
+  throw new Error(`Missing required deploy environment variable(s): ${missingEnv.join(', ')}. Copy Tanglebot/.env.example to Tanglebot/.env and fill in real values.`);
+}
+
 const commands = [];
 const commandsPath = path.join(__dirname, 'commands');
 
@@ -22,6 +29,18 @@ const rest = new REST().setToken(process.env.DISCORD_TOKEN);
     );
     console.log('Slash commands deployed successfully.');
   } catch (err) {
+    if (err?.code === 50001) {
+      console.error(
+        [
+          'Discord rejected the command deploy with Missing Access.',
+          'Check that:',
+          '- CLAN_ID is the Discord server ID where the bot is installed.',
+          '- CLIENT_ID belongs to the same Discord application as DISCORD_TOKEN.',
+          '- The bot was invited to that server with the applications.commands scope.',
+          '- You have permission to add/manage the bot in that server.',
+        ].join('\n')
+      );
+    }
     console.error(err);
   }
 })();
