@@ -126,6 +126,8 @@ Each submission must include exactly one image attachment. For ending KC submiss
 
 The intake stays disabled unless all three intake environment variables are set, so existing slash-command functionality can run without site integration configured.
 
+---
+
 ### Announcement Channel Cleanup
 
 When configured, Tanglebot watches a designated announcement channel and automatically deletes any crossposted message that Discord has replaced with `[Original Message Deleted]`. This happens when a server follows an external announcement channel and the original post is later removed — Discord edits the local copy to show that placeholder rather than removing it. Tanglebot detects that edit and cleans it up immediately.
