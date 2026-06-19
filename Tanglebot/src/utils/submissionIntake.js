@@ -2,6 +2,8 @@ const { readJson, writeJson } = require('./db');
 
 const LAST_SUBMISSION_FILE = 'last-submission.json';
 const ACTIVE_SESSION_FILE = 'active-kc-sessions.json';
+const KC_SESSION_DURATION_MS = 30 * 60 * 1000;
+const SESSION_SWEEP_INTERVAL_MS = 60 * 1000;
 
 const REQUIRED_ENV_KEYS = [
   'DISCORD_SUBMISSION_CHANNEL_EVENT_MAP',
@@ -218,17 +220,83 @@ function getActiveSessions() {
   return sessions && typeof sessions === 'object' ? sessions : {};
 }
 
+function getSessionExpiryIso(startedAt) {
+  const startedAtMs = Date.parse(startedAt);
+  return new Date(startedAtMs + KC_SESSION_DURATION_MS).toISOString();
+}
+
+function normalizeSession(session) {
+  if (!session || typeof session !== 'object') return null;
+
+  const normalized = { ...session };
+  if (!normalized.startedAt) {
+    normalized.startedAt = new Date().toISOString();
+  }
+  if (!normalized.mode) {
+    normalized.mode = 'start';
+  }
+  if (!normalized.expiresAt) {
+    normalized.expiresAt = getSessionExpiryIso(normalized.startedAt);
+  }
+
+  return normalized;
+}
+
+function isSessionExpired(session, now = Date.now()) {
+  const expiresAtMs = Date.parse(session.expiresAt ?? '');
+  return !Number.isFinite(expiresAtMs) || expiresAtMs <= now;
+}
+
+function pruneExpiredSessions() {
+  const sessions = getActiveSessions();
+  const now = Date.now();
+  let changed = false;
+
+  for (const [userId, rawSession] of Object.entries(sessions)) {
+    const session = normalizeSession(rawSession);
+    if (!session || isSessionExpired(session, now)) {
+      delete sessions[userId];
+      changed = true;
+      continue;
+    }
+
+    if (JSON.stringify(session) !== JSON.stringify(rawSession)) {
+      sessions[userId] = session;
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    writeJson(ACTIVE_SESSION_FILE, sessions);
+  }
+}
+
 function getActiveSession(userId) {
   if (!userId) return null;
   const sessions = getActiveSessions();
-  return sessions[userId] ?? null;
+  const rawSession = sessions[userId];
+  if (!rawSession) return null;
+
+  const session = normalizeSession(rawSession);
+  if (!session || isSessionExpired(session)) {
+    delete sessions[userId];
+    writeJson(ACTIVE_SESSION_FILE, sessions);
+    return null;
+  }
+
+  if (JSON.stringify(session) !== JSON.stringify(rawSession)) {
+    sessions[userId] = session;
+    writeJson(ACTIVE_SESSION_FILE, sessions);
+  }
+
+  return session;
 }
 
 function setActiveSession(session) {
   const sessions = getActiveSessions();
-  sessions[session.userId] = session;
+  sessions[session.userId] = normalizeSession(session);
   writeJson(ACTIVE_SESSION_FILE, sessions);
-  return session;
+  return sessions[session.userId];
 }
 
 function clearActiveSession(userId) {
@@ -240,6 +308,11 @@ function clearActiveSession(userId) {
   delete sessions[userId];
   writeJson(ACTIVE_SESSION_FILE, sessions);
   return true;
+}
+
+function startActiveSessionSweep() {
+  pruneExpiredSessions();
+  return setInterval(pruneExpiredSessions, SESSION_SWEEP_INTERVAL_MS);
 }
 
 function saveLastAcceptedSubmission({ attachment, eventId, isDrop, message, parsed }) {
@@ -354,6 +427,7 @@ async function handleSubmissionMessage(message, config) {
 }
 
 module.exports = {
+  KC_SESSION_DURATION_MS,
   SUBMISSION_FORMAT_MESSAGE,
   clearActiveSession,
   getActiveSession,
@@ -364,4 +438,5 @@ module.exports = {
   loadSubmissionConfig,
   parseSubmissionBody,
   setActiveSession,
+  startActiveSessionSweep,
 };

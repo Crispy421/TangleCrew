@@ -1,10 +1,11 @@
 const { Events, MessageFlags } = require('discord.js');
 const { syncCommands } = require('./commandHandler');
-const { handleSubmissionMessage, loadSubmissionConfig } = require('../utils/submissionIntake');
+const { handleSubmissionMessage, loadSubmissionConfig, startActiveSessionSweep } = require('../utils/submissionIntake');
 
 function loadEvents(client) {
   const submissionConfig = loadSubmissionConfig();
   client.submissionConfig = submissionConfig;
+  startActiveSessionSweep();
   if (submissionConfig.enabled) {
     console.log('Discord submission intake enabled.');
   }

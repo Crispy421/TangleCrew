@@ -109,7 +109,16 @@ Controls when the bot should accept a KC or drop proof from a specific user.
 | `start` | Opens a starting KC/drop proof session for the user in the current mapped submission channel |
 | `end` | Switches the user's active session into ending-KC mode for one final submission |
 
-`/kc start` must be run in a configured submission channel. Once started, only that user's messages in the same channel count as submission attempts. The session stays open across successful starting KC and drop submissions until the user runs `/kc end`. `/kc end` then waits for one valid ending KC proof from that same user and closes the session afterward.
+`/kc start` must be run in a configured submission channel. Once started, only that user's messages in the same channel count as submission attempts. The session stays open across successful starting KC and drop submissions until the user runs `/kc end`, but it expires automatically after 30 minutes if left idle. `/kc end` then waits for one valid ending KC proof from that same user and closes the session afterward, and that ending mode also expires after 30 minutes.
+
+### `/channelmap` — Generate Intake Mapping
+
+Builds a ready-to-copy `DISCORD_SUBMISSION_CHANNEL_EVENT_MAP` snippet for the current channel or a selected text channel.
+
+The command replies ephemerally with:
+- the channel mention and ID
+- a JSON pair such as `{"123456789012345678":"REPLACE_WITH_EVENT_ID"}`
+- a full env var example ready to paste into `.env`
 
 ---
 
@@ -117,7 +126,7 @@ Controls when the bot should accept a KC or drop proof from a specific user.
 
 ### KC and Drop Proof Intake
 
-When configured, Tanglebot accepts KC and drop proof posts only after a user runs `/kc start` in a mapped submission channel. Only messages from that same user in that same channel count as submission attempts. Starting KC submissions and drop proofs can continue while the start session remains active. After the user runs `/kc end`, the bot waits for one valid ending KC proof from that same user, forwards it to the configured Supabase intake endpoint for manual review on the site, and then closes the session.
+When configured, Tanglebot accepts KC and drop proof posts only after a user runs `/kc start` in a mapped submission channel. Only messages from that same user in that same channel count as submission attempts. Starting KC submissions and drop proofs can continue while the start session remains active. After the user runs `/kc end`, the bot waits for one valid ending KC proof from that same user, forwards it to the configured Supabase intake endpoint for manual review on the site, and then closes the session. Any active KC session that sits open for 30 minutes is automatically removed.
 
 Supported KC format:
 
@@ -137,7 +146,7 @@ Item Dropped: <item name>
 
 Each submission must include exactly one image attachment. For ending KC submissions, `Starting or Ending: Ending`, `Ending Kill Count: 1234`, or `Kill Count: 1234` are accepted.
 
-Users without an active `/kc start` session are ignored. Validation failures keep the session open so the user can fix the format and resubmit. `/kc start` accepts starting KC submissions and drop proofs. `/kc end` accepts only an ending KC submission and then closes the session. The intake stays disabled unless all three intake environment variables are set, so existing slash-command functionality can run without site integration configured.
+Users without an active `/kc start` session are ignored. Validation failures keep the session open so the user can fix the format and resubmit. `/kc start` accepts starting KC submissions and drop proofs. `/kc end` accepts only an ending KC submission and then closes the session. Both start and end sessions expire automatically after 30 minutes. The intake stays disabled unless all three intake environment variables are set, so existing slash-command functionality can run without site integration configured.
 
 ---
 
