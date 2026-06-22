@@ -25,14 +25,15 @@ function loadCommands(client) {
 }
 
 async function syncCommands(client) {
-  const { CLIENT_ID, CLAN_ID, DISCORD_TOKEN } = process.env;
+  const { CLIENT_ID, CLAN_ID } = process.env;
+  const discordBotToken = process.env.DISCORD_BOT_TOKEN || process.env.DISCORD_TOKEN;
   if (!CLIENT_ID || !CLAN_ID) {
     console.warn('Skipping slash command sync: CLIENT_ID and/or CLAN_ID is not set.');
     return;
   }
 
   const commands = client.commands.map(command => command.data.toJSON());
-  const rest = new REST().setToken(DISCORD_TOKEN);
+  const rest = new REST().setToken(discordBotToken);
 
   try {
     console.log(`Syncing ${commands.length} slash command(s) (this replaces any existing ones)...`);
@@ -45,7 +46,7 @@ async function syncCommands(client) {
           'Discord rejected the command sync with Missing Access.',
           'Check that:',
           '- CLAN_ID is the Discord server ID where the bot is installed.',
-          '- CLIENT_ID belongs to the same Discord application as DISCORD_TOKEN.',
+          '- CLIENT_ID belongs to the same Discord application as DISCORD_BOT_TOKEN.',
           '- The bot was invited to that server with the applications.commands scope.',
         ].join('\n')
       );

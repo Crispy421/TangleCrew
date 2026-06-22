@@ -3,7 +3,7 @@ const { ChannelType, MessageFlags, PermissionFlagsBits, SlashCommandBuilder } = 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('channelmap')
-    .setDescription('Generate a channel-to-event env var snippet for proof intake')
+    .setDescription('Show the Discord channel ID to copy into the web panel')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addChannelOption(option =>
       option
@@ -14,18 +14,17 @@ module.exports = {
 
   async execute(interaction) {
     const channel = interaction.options.getChannel('channel') ?? interaction.channel;
-    const mapping = JSON.stringify({ [channel.id]: 'REPLACE_WITH_EVENT_ID' });
 
     return interaction.reply({
       content: [
         `Channel: <#${channel.id}>`,
         `Channel ID: \`${channel.id}\``,
         '',
-        'JSON pair:',
-        `\`${mapping}\``,
+        'Web panel row values:',
+        `- \`channel_id\`: \`${channel.id}\``,
+        '- `channel_kind`: `submission` or `approval`',
         '',
-        'Full env var example:',
-        `\`DISCORD_SUBMISSION_CHANNEL_EVENT_MAP=${mapping}\``,
+        'Set those values on the matching `event_discord_channels` row in the web panel. The bot now reads channel routing from Supabase at runtime.',
       ].join('\n'),
       flags: MessageFlags.Ephemeral,
     });

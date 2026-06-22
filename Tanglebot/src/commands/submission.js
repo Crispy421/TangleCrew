@@ -1,7 +1,9 @@
-const { EmbedBuilder, MessageFlags, SlashCommandBuilder } = require('discord.js');
+const { EmbedBuilder, MessageFlags, PermissionFlagsBits, SlashCommandBuilder } = require('discord.js');
 const {
   SUBMISSION_FORMAT_MESSAGE,
+  getConfiguredIntakeUrl,
   getLastAcceptedSubmission,
+  setConfiguredIntakeUrl,
 } = require('../utils/submissionIntake');
 
 const DISCORD_GREEN = 0x1a5c2e;
@@ -30,12 +32,28 @@ module.exports = {
             .setName('private')
             .setDescription('Only show this response to you')
         )
+    )
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName('showintakeurl')
+        .setDescription('Show the currently configured Discord KC intake URL')
+    )
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName('setintakeurl')
+        .setDescription('Set the Discord KC intake URL override stored locally on the bot')
+        .addStringOption(option =>
+          option
+            .setName('url')
+            .setDescription('Full intake URL to use for Discord KC submissions')
+            .setRequired(true)
+        )
     ),
 
   async execute(interaction) {
+    const subcommand = interaction.options.getSubcommand();
     const privateReply = interaction.options.getBoolean('private') ?? false;
     const flags = privateReply ? MessageFlags.Ephemeral : undefined;
-    const subcommand = interaction.options.getSubcommand();
 
     if (subcommand === 'format') {
       return interaction.reply({
@@ -56,6 +74,53 @@ module.exports = {
       return interaction.reply({
         embeds: [buildLastSubmissionEmbed(submission)],
         flags,
+      });
+    }
+
+    if (subcommand === 'showintakeurl') {
+      if (!hasSubmissionAdminAccess(interaction)) {
+        return interaction.reply({
+          content: 'You need Manage Server permission to view the intake URL override.',
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      const currentUrl = getConfiguredIntakeUrl();
+      return interaction.reply({
+        content: currentUrl
+          ? `Current intake URL:\n\`${currentUrl}\``
+          : 'No intake URL is configured. Set `SUPABASE_DISCORD_KC_INTAKE_URL` in env or use `/submission setintakeurl`.',
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
+    if (subcommand === 'setintakeurl') {
+      if (!hasSubmissionAdminAccess(interaction)) {
+        return interaction.reply({
+          content: 'You need Manage Server permission to update the intake URL override.',
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      const url = interaction.options.getString('url', true).trim();
+      try {
+        const parsed = new URL(url);
+        if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+          throw new Error('Unsupported protocol');
+        }
+      } catch {
+        return interaction.reply({
+          content: 'That is not a valid absolute URL.',
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      const storedUrl = setConfiguredIntakeUrl(url);
+      interaction.client.submissionConfig.intakeUrl = storedUrl;
+
+      return interaction.reply({
+        content: `Stored the local intake URL override.\n\`${storedUrl}\``,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
@@ -102,4 +167,8 @@ function buildLastSubmissionEmbed(submission) {
   }
 
   return embed;
+}
+
+function hasSubmissionAdminAccess(interaction) {
+  return interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild) ?? false;
 }

@@ -3,6 +3,7 @@ const {
   KC_SESSION_DURATION_MS,
   SUBMISSION_FORMAT_MESSAGE,
   getActiveSession,
+  resolveEventIdForChannel,
   setActiveSession,
 } = require('../utils/submissionIntake');
 
@@ -34,10 +35,19 @@ module.exports = {
         });
       }
 
-      const eventId = config.channelEventMap[interaction.channelId];
+      let eventId;
+      try {
+        eventId = await resolveEventIdForChannel(interaction.channelId, config);
+      } catch {
+        return interaction.reply({
+          content: 'Submission routing is temporarily unavailable. Please try again in a moment.',
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
       if (!eventId) {
         return interaction.reply({
-          content: 'This channel is not configured for proof intake. Run `/kc start` in one of the mapped submission channels.',
+          content: 'This channel is not configured for proof intake in the web panel yet.',
           flags: MessageFlags.Ephemeral,
         });
       }
