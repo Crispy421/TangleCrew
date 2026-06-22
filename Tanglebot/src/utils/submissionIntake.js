@@ -215,25 +215,26 @@ async function resolveEventIdForChannel(channelId, config) {
   }
 
   try {
-    const response = await axios.get(`${config.supabaseUrl}/rest/v1/events`, {
+    const response = await axios.get(`${config.supabaseUrl}/rest/v1/event_discord_channels`, {
       headers: {
         apikey: config.supabaseServiceRoleKey,
         Authorization: `Bearer ${config.supabaseServiceRoleKey}`,
       },
       params: {
-        select: 'id',
-        discord_submission_channel_id: `eq.${channelId}`,
+        select: 'event_id',
+        channel_id: `eq.${channelId}`,
+        channel_kind: 'eq.submission',
         limit: 1,
       },
       timeout: 10000,
     });
 
-    const eventId = response.data?.[0]?.id ?? null;
+    const eventId = response.data?.[0]?.event_id ?? null;
     setCachedChannelEvent(channelId, eventId);
     return eventId;
   } catch (error) {
     const details = error.response?.data ?? error.message;
-    console.error('Failed to resolve Discord submission channel via Supabase:', {
+    console.error('Failed to resolve Discord submission channel via Supabase event_discord_channels:', {
       channelId,
       details,
     });

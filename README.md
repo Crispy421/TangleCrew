@@ -119,8 +119,8 @@ Controls when the bot should accept a KC or drop proof from a specific user.
 
 The command replies ephemerally with:
 - the channel mention and ID
-- the value to paste into `discord_submission_channel_id`
-- a reminder that routing now comes from the web panel / Supabase event row
+- the value to paste into `event_discord_channels.channel_id`
+- a reminder that routing now comes from the web panel / Supabase channel row
 
 ---
 
@@ -128,7 +128,7 @@ The command replies ephemerally with:
 
 ### KC and Drop Proof Intake
 
-When configured, Tanglebot accepts KC and drop proof posts only after a user runs `/kc start` in a submission channel that is linked to an event through Supabase. The bot resolves the event by querying `events.discord_submission_channel_id`, caches the result briefly, and ignores channels with no configured event. Only messages from that same user in that same channel count as submission attempts. Starting KC submissions and drop proofs can continue while the start session remains active. After the user runs `/kc end`, the bot waits for one valid ending KC proof from that same user, forwards it to the configured Supabase intake endpoint for manual review on the site, and then closes the session. Any active KC session that sits open for 30 minutes is automatically removed.
+When configured, Tanglebot accepts KC and drop proof posts only after a user runs `/kc start` in a submission channel that is linked to an event through Supabase. The bot resolves the event by querying `event_discord_channels` for rows where `channel_kind = submission` and `channel_id` matches the Discord channel, caches the result briefly, and ignores channels with no configured event. Only messages from that same user in that same channel count as submission attempts. Starting KC submissions and drop proofs can continue while the start session remains active. After the user runs `/kc end`, the bot waits for one valid ending KC proof from that same user, forwards it to the configured Supabase intake endpoint for manual review on the site, and then closes the session. Any active KC session that sits open for 30 minutes is automatically removed.
 
 Supported KC format:
 
