@@ -10,3 +10,4 @@
 - Removed the `/kc` session gate so mapped submission channels are now always listened to automatically.
 - Changed message intake to process valid KC/drop proofs directly from site-configured channels and only reply to likely malformed submission attempts.
 - Updated README copy to document automatic channel listening instead of slash-command-based proof sessions.
+- Relaxed Discord KC parsing so `Monster being Killed` is optional and both KC message layouts are now shown in the resubmit/help text.

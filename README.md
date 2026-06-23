@@ -126,6 +126,15 @@ Starting or Ending: Starting
 Starting Kill Count: 1234
 ```
 
+Also accepted:
+
+```text
+Task name on Board: <tile title>
+
+Starting or Ending: Starting
+Starting Kill Count: 1234
+```
+
 Supported drop format:
 
 ```text
@@ -133,7 +142,7 @@ Task name on Board: <tile title>
 Item Dropped: <item name>
 ```
 
-Each submission must include exactly one image attachment. For ending KC submissions, `Starting or Ending: Ending`, `Ending Kill Count: 1234`, or `Kill Count: 1234` are accepted.
+`Monster being Killed` is optional for KC submissions. Blank lines are allowed in the message body. Each submission must include exactly one image attachment. For ending KC submissions, `Starting or Ending: Ending`, `Ending Kill Count: 1234`, or `Kill Count: 1234` are accepted.
 
 Messages in configured submission channels are only treated as submission attempts when they contain an image attachment or recognizable proof fields, so ordinary chatter is ignored. Validation failures ask the user to resubmit using the required format. If the Supabase channel lookup fails, the bot logs the error and asks the user to retry instead of crashing. The intake stays disabled unless all four intake environment variables are set, so existing slash-command functionality can run without site integration configured.
 

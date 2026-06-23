@@ -22,6 +22,12 @@ const SUBMISSION_FORMAT_MESSAGE = [
   'Starting or Ending: Starting',
   'Starting Kill Count: 1234',
   '```',
+  '```',
+  'Task name on Board: <tile title>',
+  '',
+  'Starting or Ending: Starting',
+  'Starting Kill Count: 1234',
+  '```',
   '**Drop proof format**',
   '```',
   'Task name on Board: <tile title>',
@@ -135,7 +141,7 @@ function parseSubmissionBody(content) {
 }
 
 function isKcSubmission(parsed) {
-  return !!parsed.taskName && !!parsed.monsterName && !!parsed.phase && parsed.kcValue !== null;
+  return !!parsed.taskName && !!parsed.phase && parsed.kcValue !== null;
 }
 
 function isDropSubmission(parsed) {
