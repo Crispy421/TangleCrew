@@ -55,10 +55,6 @@ function parseDonationAmount(raw) {
 }
 
 function formatGP(amount) {
-  if (amount % 1_000_000_000 === 0) return `${amount / 1_000_000_000}B`;
-  if (amount % 1_000_000 === 0)     return `${amount / 1_000_000}M`;
-  if (amount % 100_000 === 0)       return `${amount / 1_000_000}M`; // e.g. 77,500,000 → 77.5M
-  if (amount % 1_000 === 0)         return `${(amount / 1_000).toLocaleString('en-US')}K`;
   return amount.toLocaleString('en-US');
 }
 
@@ -120,6 +116,24 @@ function buildLine(entry) {
   return `${badge}<@${entry.discordId}> — ${formatGP(entry.donated)}`;
 }
 
+const LEADERBOARD_HEADER = `# ${COINS_EMOJI} Donation High Scores ${COINS_EMOJI}`;
+
+// Fallback for when the stored message ID(s) are stale (message deleted,
+// data file reset by a redeploy, etc). Scans recent channel history for the
+// bot's own previous leaderboard post(s) so we can still edit in place
+// instead of spamming a brand-new message every time.
+async function findPreviousLeaderboardMessages(channel, botUserId) {
+  const fetched = await channel.messages.fetch({ limit: 50 });
+  const ownMessages = [...fetched.values()]
+    .filter(m => m.author.id === botUserId)
+    .sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+
+  // Only trust the recovery if the earliest message actually looks like our
+  // leaderboard header — otherwise we could hijack an unrelated bot message.
+  if (!ownMessages.length || !ownMessages[0].content.startsWith(LEADERBOARD_HEADER)) return [];
+  return ownMessages;
+}
+
 module.exports = {
   requiredEnv: ['DONATIONS_SHEET_URL', 'DONATIONS_CHANNEL_ID'],
 
@@ -172,6 +186,7 @@ module.exports = {
       let assigned = 0;
       let removed  = 0;
       let notFound = 0;
+      const upgrades = []; // { discordId, tier } — highest new tier earned per member this run
 
       for (const entry of entries) {
         const member = guild.members.cache.get(entry.discordId);
@@ -180,6 +195,7 @@ module.exports = {
         // DONATION_TIERS is ordered highest → lowest.
         // Find the highest tier earned; every tier below it is also granted.
         const highestIndex = DONATION_TIERS.findIndex(t => entry.donated >= t.threshold);
+        let newTier = null;
 
         for (let i = 0; i < DONATION_TIERS.length; i++) {
           const tier   = DONATION_TIERS[i];
@@ -192,9 +208,19 @@ module.exports = {
           const qualifies = highestIndex !== -1 && i >= highestIndex;
           const hasRole   = member.roles.cache.has(roleId);
 
-          if (qualifies && !hasRole) { await member.roles.add(role); assigned++; }
-          else if (!qualifies && hasRole) { await member.roles.remove(role); removed++; }
+          if (qualifies && !hasRole) {
+            await member.roles.add(role);
+            assigned++;
+            // Tiers are iterated highest → lowest, so the first newly-added
+            // role for this member is the highest new tier they reached.
+            if (!newTier) newTier = tier;
+          } else if (!qualifies && hasRole) {
+            await member.roles.remove(role);
+            removed++;
+          }
         }
+
+        if (newTier) upgrades.push({ discordId: entry.discordId, tier: newTier });
       }
 
       console.log(`[updatedonations] Roles done — +${assigned} assigned, -${removed} removed, ${notFound} not found in server.`);
@@ -232,17 +258,29 @@ module.exports = {
       const channel = await guild.channels.fetch(channelId);
       const stored  = readJson('donations_message.json');
       const prevIds = Array.isArray(stored.messageIds) ? stored.messageIds : (stored.messageId ? [stored.messageId] : []);
-      const newIds  = [];
+
+      let prevMessages = await Promise.all(
+        prevIds.map(id => channel.messages.fetch(id).catch(() => null))
+      );
+
+      if (prevMessages.some(m => !m)) {
+        const recovered = await findPreviousLeaderboardMessages(channel, interaction.client.user.id);
+        if (recovered.length) {
+          console.log(`[updatedonations] Stored message IDs stale, recovered ${recovered.length} previous leaderboard message(s) from channel history.`);
+          prevMessages = recovered;
+        }
+      }
+
+      const newIds = [];
 
       for (let i = 0; i < chunks.length; i++) {
-        const prevId = prevIds[i];
-        if (prevId) {
+        const existing = prevMessages[i];
+        if (existing) {
           try {
-            const existing = await channel.messages.fetch(prevId);
             await existing.edit({ content: chunks[i] });
             newIds.push(existing.id);
           } catch (err) {
-            console.error(`[updatedonations] Could not edit message ${prevId} (${err.message}), sending new...`);
+            console.error(`[updatedonations] Could not edit message ${existing.id} (${err.message}), sending new...`);
             const sent = await channel.send({ content: chunks[i] });
             newIds.push(sent.id);
           }
@@ -253,10 +291,11 @@ module.exports = {
       }
 
       // Delete any leftover messages from a previous run that had more chunks
-      for (let i = chunks.length; i < prevIds.length; i++) {
+      for (let i = chunks.length; i < prevMessages.length; i++) {
+        const leftover = prevMessages[i];
+        if (!leftover) continue;
         try {
-          const old = await channel.messages.fetch(prevIds[i]);
-          await old.delete();
+          await leftover.delete();
         } catch {
           // Already deleted — ignore
         }
@@ -265,10 +304,34 @@ module.exports = {
       writeJson('donations_message.json', { messageIds: newIds });
       console.log('[updatedonations] Done.');
 
-      await interaction.editReply(
+      let summary =
         `Leaderboard posted to <#${channelId}>.\n` +
-        `Roles updated: **+${assigned}** assigned, **-${removed}** removed.`
-      );
+        `Roles updated: **+${assigned}** assigned, **-${removed}** removed.`;
+
+      if (upgrades.length) {
+        const lines = upgrades.map(u =>
+          `${tierEmoji(u.tier)} <@${u.discordId}> → **${u.tier.name}**`.trim()
+        );
+
+        // Keep the reply under Discord's 2000-char limit even if a large
+        // batch of members leveled up in one run.
+        const header = '\n\nNew roles granted:\n';
+        let body = lines.join('\n');
+        if ((summary + header + body).length > 1900) {
+          let shown = 0;
+          let truncated = '';
+          for (const line of lines) {
+            if ((summary + header + truncated + line).length > 1850) break;
+            truncated += (truncated ? '\n' : '') + line;
+            shown++;
+          }
+          body = `${truncated}\n…and ${lines.length - shown} more`;
+        }
+
+        summary += `${header}${body}`;
+      }
+
+      await interaction.editReply(summary);
 
     } catch (err) {
       console.error('[updatedonations] Fatal error:', err);

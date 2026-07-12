@@ -64,8 +64,9 @@ Posts (or updates) a leaderboard message ranking clan members by total donations
 2. Reads the `Name`, `DiscordID`, and `Donated` columns. Rows with the same Discord ID are merged together (their totals are summed) before ranking.
 3. Sorts donors by total donated, highest first.
 4. For each donor, assigns the highest donation tier role they qualify for, plus every tier role below it (tiers stack — a Zenyte donor also keeps Gold and Diamond). Roles for tiers no longer met are removed.
-5. Builds a leaderboard message with a 💰 "Donation High Scores" header, a total donated line, and one line per donor with their tier emoji, mention, and formatted total (e.g. `150M`, `77.5M`, `14,666K`). The top donor's name is shown enlarged.
-6. Posts the leaderboard to the configured channel, or edits the existing leaderboard message(s) in place on subsequent runs (no duplicates). If the leaderboard is too long for one message, it's split across multiple messages, which are also kept in sync on later runs.
+5. Builds a leaderboard message with a 💰 "Donation High Scores" header, a total donated line, and one line per donor with their tier emoji, mention, and full donated total (e.g. `150,000,000`). The top donor's name is shown enlarged.
+6. Posts the leaderboard to the configured channel, or edits the existing leaderboard message(s) in place on subsequent runs (no duplicates). If the leaderboard is too long for one message, it's split across multiple messages, which are also kept in sync on later runs. If the previously tracked message(s) can't be found (e.g. deleted, or the bot's local state was reset), it falls back to scanning the channel's recent history for its own last leaderboard post(s) and edits those instead of posting duplicates.
+7. Replies with a summary of role changes, including a "New roles granted" list naming each member who reached a new donation tier this run.
 
 Restricted to users with the **Templar** role.
 
