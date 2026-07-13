@@ -8,14 +8,18 @@ const {
 } = require('discord.js');
 const { CATEGORIES } = require('./roleMenu');
 
-// How many upcoming hourly slots to offer in the time dropdown.
-const TIME_SLOT_COUNT = 12;
+// The time dropdown covers the next few hours in half-hour increments,
+// starting from the next half-hour boundary after "now".
+const SLOT_INTERVAL_MINUTES = 30;
+const SLOT_WINDOW_HOURS = 4;
 
 // Optional: set LFG_TIMEZONE in .env (e.g. "America/New_York") to control
 // how the time dropdown's OWN labels are displayed while picking. This has
 // no effect on the final posted time — that always auto-converts to each
-// viewer's own timezone via Discord's <t:...> timestamp format.
-const DROPDOWN_TIMEZONE = process.env.LFG_TIMEZONE || 'UTC';
+// viewer's own timezone via Discord's <t:...> timestamp format. Defaults to
+// Pacific Time; override with LFG_TIMEZONE if your community's primary
+// timezone is different.
+const DROPDOWN_TIMEZONE = process.env.LFG_TIMEZONE || 'America/Los_Angeles';
 
 const SIZE_OPTIONS = [
   { value: '2', label: 'Duo (2 players)' },
@@ -49,12 +53,13 @@ function findRoleOption(value) {
   return buildRoleOptions().find((o) => o.value === value);
 }
 
-// ---- Building the time dropdown: next N hourly slots ----
-function buildTimeOptions(count = TIME_SLOT_COUNT) {
+// ---- Building the time dropdown: next 4 hours, 30-minute increments ----
+function buildTimeOptions() {
   const now = new Date();
   const start = new Date(now);
-  start.setMinutes(0, 0, 0);
-  start.setHours(start.getHours() + 1); // next full hour
+  start.setSeconds(0, 0);
+  const remainder = start.getMinutes() % SLOT_INTERVAL_MINUTES;
+  start.setMinutes(start.getMinutes() + (SLOT_INTERVAL_MINUTES - remainder)); // next half-hour boundary
 
   const fmt = new Intl.DateTimeFormat('en-US', {
     hour: 'numeric',
@@ -63,10 +68,11 @@ function buildTimeOptions(count = TIME_SLOT_COUNT) {
     timeZone: DROPDOWN_TIMEZONE,
   });
 
+  const totalSlots = (SLOT_WINDOW_HOURS * 60) / SLOT_INTERVAL_MINUTES;
   const options = [];
-  for (let i = 0; i < count; i++) {
-    const slotStart = new Date(start.getTime() + i * 60 * 60 * 1000);
-    const slotEnd = new Date(slotStart.getTime() + 60 * 60 * 1000);
+  for (let i = 0; i < totalSlots; i++) {
+    const slotStart = new Date(start.getTime() + i * SLOT_INTERVAL_MINUTES * 60 * 1000);
+    const slotEnd = new Date(slotStart.getTime() + SLOT_INTERVAL_MINUTES * 60 * 1000);
     const label = `${fmt.format(slotStart)} - ${fmt.format(slotEnd)}`;
     const epochSeconds = Math.floor(slotStart.getTime() / 1000);
     options.push({ value: String(epochSeconds), label });
