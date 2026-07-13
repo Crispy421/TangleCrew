@@ -8,6 +8,11 @@ const {
   sendHoneypotStartupMessage,
 } = require('../utils/honeypot');
 const { handleRoleMenuButtonInteraction } = require('../utils/roleMenu');
+const {
+  handleLfgSelectInteraction,
+  handleLfgButtonInteraction,
+  handleLfgGroupButtonInteraction,
+} = require('../utils/lfgGroup');
 
 function loadEvents(client) {
   const submissionConfig = loadSubmissionConfig();
@@ -79,12 +84,33 @@ function loadEvents(client) {
           await handleRoleMenuButtonInteraction(interaction);
         } catch (err) {
           console.error('Role menu button interaction error:', err);
-          const msg = { content: 'Something went wrong updating your roles.', flags: MessageFlags.Ephemeral };
-          if (interaction.replied || interaction.deferred) {
-            await interaction.followUp(msg).catch(() => {});
-          } else {
-            await interaction.reply(msg).catch(() => {});
-          }
+          await replyOrFollowUp(interaction, 'Something went wrong updating your roles.');
+        }
+      } else if (interaction.customId.startsWith('lfggroup:')) {
+        try {
+          await handleLfgGroupButtonInteraction(interaction);
+        } catch (err) {
+          console.error('LFG group button interaction error:', err);
+          await replyOrFollowUp(interaction, 'Something went wrong joining that group.');
+        }
+      } else if (interaction.customId.startsWith('lfg:')) {
+        try {
+          await handleLfgButtonInteraction(interaction);
+        } catch (err) {
+          console.error('LFG setup button interaction error:', err);
+          await replyOrFollowUp(interaction, 'Something went wrong creating your LFG post.');
+        }
+      }
+      return;
+    }
+
+    if (interaction.isStringSelectMenu()) {
+      if (interaction.customId.startsWith('lfg:')) {
+        try {
+          await handleLfgSelectInteraction(interaction);
+        } catch (err) {
+          console.error('LFG select interaction error:', err);
+          await replyOrFollowUp(interaction, 'Something went wrong updating your LFG setup.');
         }
       }
       return;
@@ -108,14 +134,18 @@ function loadEvents(client) {
       await command.execute(interaction);
     } catch (err) {
       console.error(err);
-      const msg = { content: 'Something went wrong running that command.', flags: MessageFlags.Ephemeral };
-      if (interaction.replied || interaction.deferred) {
-        await interaction.followUp(msg);
-      } else {
-        await interaction.reply(msg);
-      }
+      await replyOrFollowUp(interaction, 'Something went wrong running that command.');
     }
   });
+}
+
+async function replyOrFollowUp(interaction, content) {
+  const msg = { content, flags: MessageFlags.Ephemeral };
+  if (interaction.replied || interaction.deferred) {
+    await interaction.followUp(msg).catch(() => {});
+  } else {
+    await interaction.reply(msg).catch(() => {});
+  }
 }
 
 module.exports = { loadEvents };
