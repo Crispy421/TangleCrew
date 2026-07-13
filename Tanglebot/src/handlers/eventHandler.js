@@ -7,6 +7,7 @@ const {
   loadHoneypotConfig,
   sendHoneypotStartupMessage,
 } = require('../utils/honeypot');
+const { handleRoleMenuButtonInteraction } = require('../utils/roleMenu');
 
 function loadEvents(client) {
   const submissionConfig = loadSubmissionConfig();
@@ -72,6 +73,18 @@ function loadEvents(client) {
           await handleHoneypotButtonInteraction(interaction);
         } catch (err) {
           console.error('Honeypot button interaction error:', err);
+        }
+      } else if (interaction.customId.startsWith('roles:')) {
+        try {
+          await handleRoleMenuButtonInteraction(interaction);
+        } catch (err) {
+          console.error('Role menu button interaction error:', err);
+          const msg = { content: 'Something went wrong updating your roles.', flags: MessageFlags.Ephemeral };
+          if (interaction.replied || interaction.deferred) {
+            await interaction.followUp(msg).catch(() => {});
+          } else {
+            await interaction.reply(msg).catch(() => {});
+          }
         }
       }
       return;
