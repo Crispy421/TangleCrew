@@ -10,12 +10,10 @@ const {
 const { handleRoleMenuButtonInteraction } = require('../utils/roleMenu');
 const {
   handleLfgSelectInteraction,
-  handleLfgButtonInteraction,
   handleLfgGroupButtonInteraction,
 } = require('../utils/lfgGroup');
 const {
   handleLfgForumSelectInteraction,
-  handleLfgForumButtonInteraction,
   handleLfgForumModalSubmit,
   handleLfgForumGroupButtonInteraction,
 } = require('../utils/lfgForum');
@@ -105,20 +103,6 @@ function loadEvents(client) {
         } catch (err) {
           console.error('LFG forum group button interaction error:', err);
           await replyOrFollowUp(interaction, 'Something went wrong updating that group.');
-        }
-      } else if (interaction.customId.startsWith('lfgforum:')) {
-        try {
-          await handleLfgForumButtonInteraction(interaction);
-        } catch (err) {
-          console.error('LFG forum setup button interaction error:', err);
-          await replyOrFollowUp(interaction, 'Something went wrong creating your LFG forum post.');
-        }
-      } else if (interaction.customId.startsWith('lfg:')) {
-        try {
-          await handleLfgButtonInteraction(interaction);
-        } catch (err) {
-          console.error('LFG setup button interaction error:', err);
-          await replyOrFollowUp(interaction, 'Something went wrong creating your LFG post.');
         }
       }
       return;
