@@ -16,10 +16,11 @@ const {
   findActivityOption,
   buildSizeOptions,
   findSizeOption,
-  buildTimeOptions,
-  DURATION_OPTIONS,
+  describeSizeOptions,
+  parseSizeCap,
+  TIME_OFFSET_OPTIONS,
   findTimeOption,
-  findDurationOption,
+  resolveTimeEpoch,
   buildGroupEmbed,
   buildGroupRow,
   makeGroupId,
@@ -33,16 +34,15 @@ const FORUM_CHANNEL_ID = process.env.LFG_FORUM_CHANNEL_ID;
 // Separate in-memory state from the regular /lfg command, so both versions
 // can run side by side without interfering with each other. Lost on
 // restart/redeploy, same caveat as the regular version.
-const setupSessions = new Map(); // userId -> { category, activity, size, time, duration }
+const setupSessions = new Map(); // userId -> { category, activity, size, time }
 const activeGroups = new Map(); // groupId -> group state
 
 // ---- Setup UI (accordion, identical shape to /lfg, different customId prefix) ----
-// No separate "Create" button — 5 dropdowns already use all of Discord's
-// 5 component rows. Once Duration (the last one) is filled, this opens the
-// description modal directly instead of waiting for a button click.
+// No separate "Create" button. Once Start Time (the last dropdown) is
+// filled, this opens the description modal directly.
 function getSession(userId) {
   if (!setupSessions.has(userId)) {
-    setupSessions.set(userId, { category: null, activity: null, size: null, time: null, duration: null });
+    setupSessions.set(userId, { category: null, activity: null, size: null, time: null });
   }
   return setupSessions.get(userId);
 }
@@ -69,7 +69,7 @@ function buildSetupComponents(session) {
       .addOptions(
         getActivityOptions(session.category).map((r) => ({
           value: r.value,
-          label: `${r.label} (max ${r.maxPlayers})`,
+          label: `${r.label} (${describeSizeOptions(r)})`,
           default: session.activity === r.value,
         }))
       );
@@ -82,7 +82,7 @@ function buildSetupComponents(session) {
       .setCustomId('lfgforum:select:size')
       .setPlaceholder('3. Choose group size')
       .addOptions(
-        buildSizeOptions(activityOption.maxPlayers).map((o) => ({
+        buildSizeOptions(activityOption).map((o) => ({
           value: o.value,
           label: o.label,
           default: session.size === o.value,
@@ -96,27 +96,13 @@ function buildSetupComponents(session) {
       .setCustomId('lfgforum:select:time')
       .setPlaceholder('4. Choose a start time')
       .addOptions(
-        buildTimeOptions().map((o) => ({
+        TIME_OFFSET_OPTIONS.map((o) => ({
           value: o.value,
           label: o.label,
           default: session.time === o.value,
         }))
       );
     rows.push(new ActionRowBuilder().addComponents(timeSelect));
-  }
-
-  if (session.category && session.activity && session.size && session.time) {
-    const durationSelect = new StringSelectMenuBuilder()
-      .setCustomId('lfgforum:select:duration')
-      .setPlaceholder('5. Choose a duration')
-      .addOptions(
-        DURATION_OPTIONS.map((o) => ({
-          value: o.value,
-          label: o.label,
-          default: session.duration === o.value,
-        }))
-      );
-    rows.push(new ActionRowBuilder().addComponents(durationSelect));
   }
 
   return rows;
@@ -131,13 +117,12 @@ function buildSetupContent(session) {
   }
   if (session.category && session.activity && session.size) {
     const activityOption = findActivityOption(session.category, session.activity);
-    parts.push(`**Size:** ${findSizeOption(activityOption.maxPlayers, session.size)?.label ?? '?'}`);
+    parts.push(`**Size:** ${findSizeOption(activityOption, session.size)?.label ?? '?'}`);
   }
   if (session.time) parts.push(`**Start:** ${findTimeOption(session.time)?.label ?? '?'}`);
-  if (session.duration) parts.push(`**Duration:** ${findDurationOption(session.duration)?.label ?? '?'}`);
 
   const summary = parts.length ? parts.join('  •  ') + '\n\n' : '';
-  return `${summary}Pick a category, an activity, a group size, a start time, and a duration. You'll be asked for an optional description once all five are picked.`;
+  return `${summary}Pick a category, an activity, a group size, and a start time. You'll be asked for an optional description once all four are picked.`;
 }
 
 async function sendSetupMenu(interaction) {
@@ -164,13 +149,12 @@ async function handleSetupSelect(interaction, field) {
     session.activity = null;
     session.size = null;
     session.time = null;
-    session.duration = null;
   }
   if (field === 'activity') {
     session.size = null;
   }
 
-  const allFilled = session.category && session.activity && session.size && session.time && session.duration;
+  const allFilled = session.category && session.activity && session.size && session.time;
   if (allFilled) {
     return openDescriptionModal(interaction);
   }
@@ -181,7 +165,7 @@ async function handleSetupSelect(interaction, field) {
   });
 }
 
-// ---- Once all 5 dropdowns are filled: open the description modal directly ----
+// ---- Once all 4 dropdowns are filled: open the description modal directly ----
 async function openDescriptionModal(interaction) {
   const modal = new ModalBuilder()
     .setCustomId('lfgforum:desc')
@@ -202,7 +186,7 @@ async function openDescriptionModal(interaction) {
 // ---- Modal submit actually creates the forum post ----
 async function handleDescriptionModalSubmit(interaction) {
   const session = getSession(interaction.user.id);
-  if (!session.category || !session.activity || !session.size || !session.time || !session.duration) {
+  if (!session.category || !session.activity || !session.size || !session.time) {
     return interaction.reply({
       content: '⚠️ Something went wrong finding your selections — please run /lfg-forum again.',
       flags: MessageFlags.Ephemeral,
@@ -211,9 +195,8 @@ async function handleDescriptionModalSubmit(interaction) {
 
   const categoryOption = findCategoryOption(session.category);
   const activityOption = findActivityOption(session.category, session.activity);
-  const sizeOption = findSizeOption(activityOption.maxPlayers, session.size);
+  const sizeOption = findSizeOption(activityOption, session.size);
   const timeOption = findTimeOption(session.time);
-  const durationOption = findDurationOption(session.duration);
   const description = interaction.fields.getTextInputValue('description')?.trim() || null;
 
   const guildRole = interaction.guild.roles.cache.find((r) => r.name === activityOption.roleName);
@@ -233,12 +216,10 @@ async function handleDescriptionModalSubmit(interaction) {
   }
 
   const groupId = makeGroupId();
-  const timeEpoch = parseInt(timeOption.value, 10);
-  const durationMinutes = parseInt(durationOption.value, 10);
-  const endEpoch = timeEpoch + durationMinutes * 60;
-  const sizeCap = parseInt(sizeOption.value, 10);
+  const timeEpoch = resolveTimeEpoch(timeOption.value);
+  const sizeCap = parseSizeCap(sizeOption.value);
   const roleLabel = `${categoryOption.label}: ${activityOption.label}`;
-  const baseTitle = `${roleLabel} — Start: ${timeOption.label} — ${durationOption.label} — ${sizeOption.label}`;
+  const baseTitle = `${roleLabel} — Start: ${timeOption.label} — ${sizeOption.label}`;
 
   const group = {
     id: groupId,
@@ -246,9 +227,6 @@ async function handleDescriptionModalSubmit(interaction) {
     creatorTag: interaction.user.username,
     roleLabel,
     timeEpoch,
-    durationLabel: durationOption.label,
-    durationMinutes,
-    endEpoch,
     sizeLabel: sizeOption.label,
     sizeCap,
     description,
@@ -288,18 +266,18 @@ async function handleDescriptionModalSubmit(interaction) {
 
   group.threadId = thread.id;
 
-  // Auto-delete once the event's end time (start + duration) has passed,
-  // unless the group closes/fills/disbands sooner.
-  scheduleForumGroupCleanup(interaction.client, group, Math.max(group.endEpoch * 1000 - Date.now(), 0));
+  // Auto-delete once the chosen start time has passed, unless the group
+  // closes/fills/disbands sooner.
+  scheduleForumGroupCleanup(interaction.client, group, Math.max(group.timeEpoch * 1000 - Date.now(), 0));
   setupSessions.delete(interaction.user.id);
 
   await interaction.reply({ content: `✅ Your LFG forum post has been created: ${thread}`, flags: MessageFlags.Ephemeral });
   setTimeout(() => interaction.deleteReply().catch(() => {}), 30000);
 }
 
-async function renameThread(interaction, group, closed) {
+async function renameThread(interaction, group, prefixWord) {
   try {
-    await interaction.channel.setName(`${closed ? '[Closed]' : '[Open]'} ${group.baseTitle}`);
+    await interaction.channel.setName(`[${prefixWord}] ${group.baseTitle}`);
   } catch (err) {
     console.error(`Could not rename LFG forum thread ${group.id}:`, err.message);
   }
@@ -313,15 +291,12 @@ async function handleJoinButton(interaction, groupId) {
   if (group.status === 'closed') {
     return interaction.reply({ content: '⚠️ This group is already full.', flags: MessageFlags.Ephemeral });
   }
-  if (group.status === 'disbanded') {
-    return interaction.reply({ content: '⚠️ This group has been disbanded.', flags: MessageFlags.Ephemeral });
-  }
   if (group.members.has(interaction.user.id)) {
     return interaction.reply({ content: 'You\'re already in this group.', flags: MessageFlags.Ephemeral });
   }
 
   group.members.add(interaction.user.id);
-  const justFilled = group.members.size >= group.sizeCap;
+  const justFilled = group.sizeCap !== Infinity && group.members.size >= group.sizeCap;
   if (justFilled) {
     group.status = 'closed';
   }
@@ -333,7 +308,7 @@ async function handleJoinButton(interaction, groupId) {
   await interaction.followUp({ content: '✅ You joined the group!', flags: MessageFlags.Ephemeral });
 
   if (justFilled) {
-    await renameThread(interaction, group, true);
+    await renameThread(interaction, group, 'Full');
     const mentions = [...group.members].map((id) => `<@${id}>`).join(' ');
     await interaction.channel.send({ content: `${mentions}\n🎉 **Group formed, Good luck!**` });
     scheduleForumGroupCleanup(interaction.client, group, GROUP_FORMED_CLEANUP_DELAY_MS);
@@ -345,9 +320,6 @@ async function handleCloseButton(interaction, groupId) {
   if (!group) {
     return interaction.reply({ content: '⚠️ This group no longer exists.', flags: MessageFlags.Ephemeral });
   }
-  if (interaction.user.id !== group.creatorId) {
-    return interaction.reply({ content: '⚠️ Only the group creator can close this group.', flags: MessageFlags.Ephemeral });
-  }
   if (group.status !== 'open') {
     return interaction.reply({ content: '⚠️ This group is already closed.', flags: MessageFlags.Ephemeral });
   }
@@ -356,7 +328,7 @@ async function handleCloseButton(interaction, groupId) {
   const embed = buildGroupEmbed(group);
   const row = buildGroupRow(groupId, 'closed', 'lfgforumgroup');
   await interaction.update({ embeds: [embed], components: [row] });
-  await renameThread(interaction, group, true);
+  await renameThread(interaction, group, 'Full');
 
   const mentions = [...group.members].map((id) => `<@${id}>`).join(' ');
   await interaction.channel.send({ content: `${mentions}\n🎉 **Group formed, Good luck!**` });
@@ -364,16 +336,31 @@ async function handleCloseButton(interaction, groupId) {
   scheduleForumGroupCleanup(interaction.client, group, GROUP_FORMED_CLEANUP_DELAY_MS);
 }
 
+async function handleReopenButton(interaction, groupId) {
+  const group = activeGroups.get(groupId);
+  if (!group) {
+    return interaction.reply({ content: '⚠️ This group no longer exists.', flags: MessageFlags.Ephemeral });
+  }
+  if (group.status !== 'closed') {
+    return interaction.reply({ content: '⚠️ This group isn\'t currently closed.', flags: MessageFlags.Ephemeral });
+  }
+
+  group.status = 'open';
+  const embed = buildGroupEmbed(group);
+  const row = buildGroupRow(groupId, 'open', 'lfgforumgroup');
+  await interaction.update({ embeds: [embed], components: [row] });
+  await renameThread(interaction, group, 'Open');
+
+  scheduleForumGroupCleanup(interaction.client, group, Math.max(group.timeEpoch * 1000 - Date.now(), 0));
+}
+
 async function handleDisbandButton(interaction, groupId) {
   const group = activeGroups.get(groupId);
   if (!group) {
     return interaction.reply({ content: '⚠️ This group no longer exists.', flags: MessageFlags.Ephemeral });
   }
-  if (interaction.user.id !== group.creatorId) {
-    return interaction.reply({ content: '⚠️ Only the group creator can disband this group.', flags: MessageFlags.Ephemeral });
-  }
-  if (group.status !== 'open') {
-    return interaction.reply({ content: '⚠️ This group is already closed.', flags: MessageFlags.Ephemeral });
+  if (group.status === 'disbanded') {
+    return interaction.reply({ content: '⚠️ This group is already disbanded.', flags: MessageFlags.Ephemeral });
   }
 
   group.status = 'disbanded';
@@ -412,7 +399,7 @@ function scheduleForumGroupCleanup(client, group, delayMs) {
 // ---- Entry points called from eventHandler.js ----
 async function handleLfgForumSelectInteraction(interaction) {
   const field = interaction.customId.split(':')[2]; // "lfgforum:select:<field>"
-  if (!['category', 'activity', 'size', 'time', 'duration'].includes(field)) return;
+  if (!['category', 'activity', 'size', 'time'].includes(field)) return;
   return handleSetupSelect(interaction, field);
 }
 
@@ -427,6 +414,7 @@ async function handleLfgForumGroupButtonInteraction(interaction) {
   if (action === 'join') return handleJoinButton(interaction, groupId);
   if (action === 'close') return handleCloseButton(interaction, groupId);
   if (action === 'disband') return handleDisbandButton(interaction, groupId);
+  if (action === 'reopen') return handleReopenButton(interaction, groupId);
 }
 
 module.exports = {

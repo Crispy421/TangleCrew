@@ -39,7 +39,14 @@ const CATEGORIES = {
     buttonStyle: ButtonStyle.Primary,
     prompt: 'Pick the raids you want to be pingable for. Selected ones turn red and stay red until you click them again.',
     roles: [
-      { value: 'cox', label: 'CoX', emoji: { name: 'olmlet', id: 'PUT_EMOJI_ID_HERE' }, roleName: 'CoX', maxPlayers: 7 },
+      { value: 'cox', label: 'CoX', emoji: { name: 'olmlet', id: 'PUT_EMOJI_ID_HERE' }, roleName: 'CoX', maxPlayers: 7,
+        sizeOptions: [
+          { value: '2', label: '2 Players' },
+          { value: '3', label: '3 Players' },
+          { value: '4', label: '4 Players' },
+          { value: '5', label: '5 Players' },
+          { value: 'mass', label: 'Mass' },
+        ] },
       { value: 'toa', label: 'ToA', emoji: { name: 'tumekensguardian', id: 'PUT_EMOJI_ID_HERE' }, roleName: 'ToA', maxPlayers: 8 },
       { value: 'tob', label: 'ToB', emoji: { name: 'lilzik', id: 'PUT_EMOJI_ID_HERE' }, roleName: 'ToB', maxPlayers: 5 },
     ],

@@ -28,98 +28,81 @@ function findActivityOption(categoryKey, value) {
   return getActivityOptions(categoryKey).find((r) => r.value === value);
 }
 
-// Group size options: 2 players up to the activity's max, one at a time.
-// Lets the creator run a smaller group than the activity's full cap
-// (e.g. 2 players for a boss that supports up to 5).
-function buildSizeOptions(maxPlayers) {
+// Group size options. Most activities get an auto-generated 2..max range.
+// An activity can override this entirely with its own `sizeOptions` array
+// (see CoX in roleMenu.js: 2/3/4/5/Mass instead of 2..7).
+function buildSizeOptions(activityOption) {
+  if (activityOption.sizeOptions) return activityOption.sizeOptions;
   const options = [];
-  for (let n = 2; n <= maxPlayers; n++) {
-    options.push({ value: String(n), label: n === maxPlayers ? `${n} Players (Max)` : `${n} Players` });
+  for (let n = 2; n <= activityOption.maxPlayers; n++) {
+    options.push({ value: String(n), label: n === activityOption.maxPlayers ? `${n} Players (Max)` : `${n} Players` });
   }
   return options;
 }
 
-function findSizeOption(maxPlayers, value) {
-  return buildSizeOptions(maxPlayers).find((o) => o.value === value);
+function findSizeOption(activityOption, value) {
+  return buildSizeOptions(activityOption).find((o) => o.value === value);
 }
 
-// The time dropdown offers start times across the next several hours, in
-// half-hour increments, starting from the next half-hour boundary after "now".
-const SLOT_INTERVAL_MINUTES = 30;
-const SLOT_WINDOW_HOURS = 8;
+// Short descriptor shown next to an activity in the picker, e.g. "max 5" or
+// "2-5, Mass" for activities with a custom sizeOptions override.
+function describeSizeOptions(activityOption) {
+  if (!activityOption.sizeOptions) return `max ${activityOption.maxPlayers}`;
+  const numeric = activityOption.sizeOptions.filter((o) => /^\d+$/.test(o.value)).map((o) => o.value);
+  const special = activityOption.sizeOptions.filter((o) => !/^\d+$/.test(o.value)).map((o) => o.label);
+  const rangeText = numeric.length ? (numeric.length > 1 ? `${numeric[0]}-${numeric[numeric.length - 1]}` : numeric[0]) : '';
+  return [rangeText, ...special].filter(Boolean).join(', ');
+}
 
-// Optional: set LFG_TIMEZONE in .env (e.g. "America/New_York") to control
-// how the time dropdown's OWN labels are displayed while picking. This has
-// no effect on the final posted time — that always auto-converts to each
-// viewer's own timezone via Discord's <t:...> timestamp format. Defaults to
-// Pacific Time; override with LFG_TIMEZONE if your community's primary
-// timezone is different.
-const DROPDOWN_TIMEZONE = process.env.LFG_TIMEZONE || 'America/Los_Angeles';
+// A non-numeric size value (currently just "mass") means uncapped.
+function parseSizeCap(value) {
+  return /^\d+$/.test(value) ? parseInt(value, 10) : Infinity;
+}
 
-const DURATION_OPTIONS = [
-  { value: '30', label: '30 min' },
+// Time is chosen as an offset from right now (in minutes) rather than an
+// absolute clock time. This sidesteps timezone ambiguity entirely — "1 Hour
+// from now" means the same thing to everyone regardless of where they are.
+// The actual epoch is resolved fresh at post-creation time (see
+// resolveTimeEpoch), and the posted embed uses Discord's <t:...> timestamp
+// format, which auto-localizes to each viewer's own timezone and clock format.
+const TIME_OFFSET_OPTIONS = [
+  { value: '0', label: 'Now' },
+  { value: '15', label: '15 Min' },
+  { value: '30', label: '30 Min' },
   { value: '60', label: '1 Hour' },
   { value: '90', label: '1.5 Hours' },
   { value: '120', label: '2 Hours' },
-  { value: '150', label: '2.5 Hours' },
   { value: '180', label: '3 Hours' },
-  { value: '210', label: '3.5 Hours' },
   { value: '240', label: '4 Hours' },
-  { value: '270', label: '4.5 Hours' },
   { value: '300', label: '5 Hours' },
-  { value: '330', label: '5.5 Hours' },
   { value: '360', label: '6 Hours' },
 ];
+
+function findTimeOption(value) {
+  return TIME_OFFSET_OPTIONS.find((o) => o.value === value);
+}
+
+// Resolved fresh at the moment the group is actually created, not whenever
+// the dropdown was originally rendered — so a slow-to-decide creator still
+// gets an accurate "X minutes/hours from now".
+function resolveTimeEpoch(offsetMinutesValue) {
+  return Math.floor(Date.now() / 1000) + parseInt(offsetMinutesValue, 10) * 60;
+}
 
 // How long a full/manually-closed group's post stays up before auto-deleting.
 const GROUP_FORMED_CLEANUP_DELAY_MS = 5 * 60 * 1000;
 
 // In-memory state. Both of these are lost on a restart/redeploy — fine for
 // same-day LFG posts, but worth knowing if the bot redeploys mid-event.
-const setupSessions = new Map(); // userId -> { category, activity, size, time, duration }
+const setupSessions = new Map(); // userId -> { category, activity, size, time }
 const activeGroups = new Map(); // groupId -> group state
 
-// ---- Building the time dropdown: a single start time, next 8 hours, 30-min increments ----
-function buildTimeOptions() {
-  const now = new Date();
-  const start = new Date(now);
-  start.setSeconds(0, 0);
-  const remainder = start.getMinutes() % SLOT_INTERVAL_MINUTES;
-  start.setMinutes(start.getMinutes() + (SLOT_INTERVAL_MINUTES - remainder)); // next half-hour boundary
-
-  const fmt = new Intl.DateTimeFormat('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-    timeZone: DROPDOWN_TIMEZONE,
-  });
-
-  const totalSlots = (SLOT_WINDOW_HOURS * 60) / SLOT_INTERVAL_MINUTES;
-  const options = [];
-  for (let i = 0; i < totalSlots; i++) {
-    const slot = new Date(start.getTime() + i * SLOT_INTERVAL_MINUTES * 60 * 1000);
-    const label = fmt.format(slot);
-    const epochSeconds = Math.floor(slot.getTime() / 1000);
-    options.push({ value: String(epochSeconds), label });
-  }
-  return options;
-}
-
-function findTimeOption(value) {
-  return buildTimeOptions().find((o) => o.value === value);
-}
-
-function findDurationOption(value) {
-  return DURATION_OPTIONS.find((o) => o.value === value);
-}
-
-// ---- Setup UI (accordion: Category -> Activity -> Size -> Start Time -> Duration) ----
-// No separate "Create" button — Discord caps messages at 5 component rows,
-// and 5 dropdowns already uses all of them. The post is created
-// automatically the moment the last dropdown (Duration) is filled.
+// ---- Setup UI (accordion: Category -> Activity -> Size -> Start Time) ----
+// No separate "Create" button — the post is created automatically the
+// moment the last dropdown (Start Time) is filled.
 function getSession(userId) {
   if (!setupSessions.has(userId)) {
-    setupSessions.set(userId, { category: null, activity: null, size: null, time: null, duration: null });
+    setupSessions.set(userId, { category: null, activity: null, size: null, time: null });
   }
   return setupSessions.get(userId);
 }
@@ -146,7 +129,7 @@ function buildSetupComponents(session) {
       .addOptions(
         getActivityOptions(session.category).map((r) => ({
           value: r.value,
-          label: `${r.label} (max ${r.maxPlayers})`,
+          label: `${r.label} (${describeSizeOptions(r)})`,
           default: session.activity === r.value,
         }))
       );
@@ -159,7 +142,7 @@ function buildSetupComponents(session) {
       .setCustomId('lfg:select:size')
       .setPlaceholder('3. Choose group size')
       .addOptions(
-        buildSizeOptions(activityOption.maxPlayers).map((o) => ({
+        buildSizeOptions(activityOption).map((o) => ({
           value: o.value,
           label: o.label,
           default: session.size === o.value,
@@ -173,27 +156,13 @@ function buildSetupComponents(session) {
       .setCustomId('lfg:select:time')
       .setPlaceholder('4. Choose a start time')
       .addOptions(
-        buildTimeOptions().map((o) => ({
+        TIME_OFFSET_OPTIONS.map((o) => ({
           value: o.value,
           label: o.label,
           default: session.time === o.value,
         }))
       );
     rows.push(new ActionRowBuilder().addComponents(timeSelect));
-  }
-
-  if (session.category && session.activity && session.size && session.time) {
-    const durationSelect = new StringSelectMenuBuilder()
-      .setCustomId('lfg:select:duration')
-      .setPlaceholder('5. Choose a duration')
-      .addOptions(
-        DURATION_OPTIONS.map((o) => ({
-          value: o.value,
-          label: o.label,
-          default: session.duration === o.value,
-        }))
-      );
-    rows.push(new ActionRowBuilder().addComponents(durationSelect));
   }
 
   return rows;
@@ -208,13 +177,12 @@ function buildSetupContent(session) {
   }
   if (session.category && session.activity && session.size) {
     const activityOption = findActivityOption(session.category, session.activity);
-    parts.push(`**Size:** ${findSizeOption(activityOption.maxPlayers, session.size)?.label ?? '?'}`);
+    parts.push(`**Size:** ${findSizeOption(activityOption, session.size)?.label ?? '?'}`);
   }
   if (session.time) parts.push(`**Start:** ${findTimeOption(session.time)?.label ?? '?'}`);
-  if (session.duration) parts.push(`**Duration:** ${findDurationOption(session.duration)?.label ?? '?'}`);
 
   const summary = parts.length ? parts.join('  •  ') + '\n\n' : '';
-  return `${summary}Pick a category, an activity, a group size, a start time, and a duration. Your post is created automatically once all five are picked.`;
+  return `${summary}Pick a category, an activity, a group size, and a start time. Your post is created automatically once all four are picked.`;
 }
 
 async function sendSetupMenu(interaction) {
@@ -231,19 +199,15 @@ async function handleSetupSelect(interaction, field) {
   session[field] = interaction.values[0];
 
   if (field === 'category') {
-    // Changing the category invalidates everything chosen under the old
-    // category, so the accordion collapses back down.
     session.activity = null;
     session.size = null;
     session.time = null;
-    session.duration = null;
   }
   if (field === 'activity') {
-    // Size options depend on the chosen activity's max player count.
     session.size = null;
   }
 
-  const allFilled = session.category && session.activity && session.size && session.time && session.duration;
+  const allFilled = session.category && session.activity && session.size && session.time;
   if (allFilled) {
     return handleCreatePost(interaction);
   }
@@ -261,6 +225,7 @@ function makeGroupId() {
 
 // status: 'open' | 'closed' (full or manually closed) | 'disbanded'
 // prefix lets the forum variant reuse this with its own customId namespace.
+// Anyone can Join/Close/Disband/Reopen — not restricted to the creator.
 function buildGroupRow(groupId, status, prefix = 'lfggroup') {
   if (status === 'open') {
     const join = new ButtonBuilder()
@@ -278,25 +243,16 @@ function buildGroupRow(groupId, status, prefix = 'lfggroup') {
     return new ActionRowBuilder().addComponents(join, close, disband);
   }
 
-  if (status === 'closed') {
-    const full = new ButtonBuilder()
-      .setCustomId(`${prefix}:full:${groupId}`)
-      .setLabel('Group Full')
-      .setStyle(ButtonStyle.Secondary)
-      .setDisabled(true);
-    return new ActionRowBuilder().addComponents(full);
-  }
-
-  // disbanded
-  const disbanded = new ButtonBuilder()
-    .setCustomId(`${prefix}:disbanded:${groupId}`)
-    .setLabel('Disbanded')
-    .setStyle(ButtonStyle.Secondary)
-    .setDisabled(true);
-  return new ActionRowBuilder().addComponents(disbanded);
+  // closed (full or manually closed) — offer to reopen
+  const reopen = new ButtonBuilder()
+    .setCustomId(`${prefix}:reopen:${groupId}`)
+    .setLabel('Reopen Group')
+    .setStyle(ButtonStyle.Primary);
+  return new ActionRowBuilder().addComponents(reopen);
 }
 
 function buildGroupEmbed(group) {
+  const capDisplay = group.sizeCap === Infinity ? 'Mass' : String(group.sizeCap);
   const memberLines = [...group.members].map((id) => `<@${id}>`).join('\n');
 
   let title = '🔍 Looking For Group';
@@ -304,20 +260,15 @@ function buildGroupEmbed(group) {
   if (group.status === 'closed') {
     title = '🔒 Looking For Group — Full';
     color = 0x2ecc71;
-  } else if (group.status === 'disbanded') {
-    title = '❌ Looking For Group — Disbanded';
-    color = 0xe74c3c;
   }
 
   const descLines = [
     `**Activity:** ${group.roleLabel}`,
     `**Start:** <t:${group.timeEpoch}:t> (<t:${group.timeEpoch}:R>)`,
-    `**Duration:** ${group.durationLabel}`,
-    `**Ends around:** <t:${group.endEpoch}:t>`,
     `**Group Size:** ${group.sizeLabel}`,
   ];
   if (group.description) descLines.push(`**Description:** ${group.description}`);
-  descLines.push('', `**Members (${group.members.size}/${group.sizeCap}):**`, memberLines || '_none yet_');
+  descLines.push('', `**Members (${group.members.size}/${capDisplay}):**`, memberLines || '_none yet_');
 
   return new EmbedBuilder()
     .setTitle(title)
@@ -328,15 +279,14 @@ function buildGroupEmbed(group) {
 
 async function handleCreatePost(interaction) {
   const session = getSession(interaction.user.id);
-  if (!session.category || !session.activity || !session.size || !session.time || !session.duration) {
-    return interaction.reply({ content: '⚠️ Please pick all five options first.', flags: MessageFlags.Ephemeral });
+  if (!session.category || !session.activity || !session.size || !session.time) {
+    return interaction.reply({ content: '⚠️ Please pick all four options first.', flags: MessageFlags.Ephemeral });
   }
 
   const categoryOption = findCategoryOption(session.category);
   const activityOption = findActivityOption(session.category, session.activity);
-  const sizeOption = findSizeOption(activityOption.maxPlayers, session.size);
+  const sizeOption = findSizeOption(activityOption, session.size);
   const timeOption = findTimeOption(session.time);
-  const durationOption = findDurationOption(session.duration);
 
   const guildRole = interaction.guild.roles.cache.find((r) => r.name === activityOption.roleName);
   if (!guildRole) {
@@ -347,10 +297,8 @@ async function handleCreatePost(interaction) {
   }
 
   const groupId = makeGroupId();
-  const timeEpoch = parseInt(timeOption.value, 10);
-  const durationMinutes = parseInt(durationOption.value, 10);
-  const endEpoch = timeEpoch + durationMinutes * 60;
-  const sizeCap = parseInt(sizeOption.value, 10);
+  const timeEpoch = resolveTimeEpoch(timeOption.value);
+  const sizeCap = parseSizeCap(sizeOption.value);
 
   const group = {
     id: groupId,
@@ -358,9 +306,6 @@ async function handleCreatePost(interaction) {
     creatorTag: interaction.user.username,
     roleLabel: `${categoryOption.label}: ${activityOption.label}`,
     timeEpoch,
-    durationLabel: durationOption.label,
-    durationMinutes,
-    endEpoch,
     sizeLabel: sizeOption.label,
     sizeCap,
     members: new Set([interaction.user.id]),
@@ -384,9 +329,9 @@ async function handleCreatePost(interaction) {
   group.channelId = publicMessage.channelId;
   group.messageId = publicMessage.id;
 
-  // Auto-delete once the event's end time (start + duration) has passed,
-  // unless the group closes/fills/disbands sooner.
-  scheduleGroupCleanup(interaction.client, group, Math.max(group.endEpoch * 1000 - Date.now(), 0));
+  // Auto-delete once the chosen start time has passed, unless the group
+  // closes/fills/disbands sooner.
+  scheduleGroupCleanup(interaction.client, group, Math.max(group.timeEpoch * 1000 - Date.now(), 0));
   setupSessions.delete(interaction.user.id);
 
   await interaction.update({ content: '✅ Your LFG post has been created below!', components: [] });
@@ -401,15 +346,12 @@ async function handleJoinButton(interaction, groupId) {
   if (group.status === 'closed') {
     return interaction.reply({ content: '⚠️ This group is already full.', flags: MessageFlags.Ephemeral });
   }
-  if (group.status === 'disbanded') {
-    return interaction.reply({ content: '⚠️ This group has been disbanded.', flags: MessageFlags.Ephemeral });
-  }
   if (group.members.has(interaction.user.id)) {
     return interaction.reply({ content: 'You\'re already in this group.', flags: MessageFlags.Ephemeral });
   }
 
   group.members.add(interaction.user.id);
-  const justFilled = group.members.size >= group.sizeCap;
+  const justFilled = group.sizeCap !== Infinity && group.members.size >= group.sizeCap;
   if (justFilled) {
     group.status = 'closed';
   }
@@ -435,9 +377,6 @@ async function handleCloseButton(interaction, groupId) {
   if (!group) {
     return interaction.reply({ content: '⚠️ This group no longer exists.', flags: MessageFlags.Ephemeral });
   }
-  if (interaction.user.id !== group.creatorId) {
-    return interaction.reply({ content: '⚠️ Only the group creator can close this group.', flags: MessageFlags.Ephemeral });
-  }
   if (group.status !== 'open') {
     return interaction.reply({ content: '⚠️ This group is already closed.', flags: MessageFlags.Ephemeral });
   }
@@ -456,16 +395,31 @@ async function handleCloseButton(interaction, groupId) {
   scheduleGroupCleanup(interaction.client, group, GROUP_FORMED_CLEANUP_DELAY_MS);
 }
 
+async function handleReopenButton(interaction, groupId) {
+  const group = activeGroups.get(groupId);
+  if (!group) {
+    return interaction.reply({ content: '⚠️ This group no longer exists.', flags: MessageFlags.Ephemeral });
+  }
+  if (group.status !== 'closed') {
+    return interaction.reply({ content: '⚠️ This group isn\'t currently closed.', flags: MessageFlags.Ephemeral });
+  }
+
+  group.status = 'open';
+  const embed = buildGroupEmbed(group);
+  const row = buildGroupRow(groupId, 'open');
+  await interaction.update({ embeds: [embed], components: [row] });
+
+  // Back to the original expiry rule now that it's open again.
+  scheduleGroupCleanup(interaction.client, group, Math.max(group.timeEpoch * 1000 - Date.now(), 0));
+}
+
 async function handleDisbandButton(interaction, groupId) {
   const group = activeGroups.get(groupId);
   if (!group) {
     return interaction.reply({ content: '⚠️ This group no longer exists.', flags: MessageFlags.Ephemeral });
   }
-  if (interaction.user.id !== group.creatorId) {
-    return interaction.reply({ content: '⚠️ Only the group creator can disband this group.', flags: MessageFlags.Ephemeral });
-  }
-  if (group.status !== 'open') {
-    return interaction.reply({ content: '⚠️ This group is already closed.', flags: MessageFlags.Ephemeral });
+  if (group.status === 'disbanded') {
+    return interaction.reply({ content: '⚠️ This group is already disbanded.', flags: MessageFlags.Ephemeral });
   }
 
   group.status = 'disbanded';
@@ -512,7 +466,7 @@ function scheduleGroupCleanup(client, group, delayMs) {
 // ---- Entry points called from eventHandler.js ----
 async function handleLfgSelectInteraction(interaction) {
   const field = interaction.customId.split(':')[2]; // "lfg:select:<field>"
-  if (!['category', 'activity', 'size', 'time', 'duration'].includes(field)) return;
+  if (!['category', 'activity', 'size', 'time'].includes(field)) return;
   return handleSetupSelect(interaction, field);
 }
 
@@ -521,6 +475,7 @@ async function handleLfgGroupButtonInteraction(interaction) {
   if (action === 'join') return handleJoinButton(interaction, groupId);
   if (action === 'close') return handleCloseButton(interaction, groupId);
   if (action === 'disband') return handleDisbandButton(interaction, groupId);
+  if (action === 'reopen') return handleReopenButton(interaction, groupId);
 }
 
 module.exports = {
@@ -534,13 +489,13 @@ module.exports = {
   findActivityOption,
   buildSizeOptions,
   findSizeOption,
-  buildTimeOptions,
-  DURATION_OPTIONS,
+  describeSizeOptions,
+  parseSizeCap,
+  TIME_OFFSET_OPTIONS,
   findTimeOption,
-  findDurationOption,
+  resolveTimeEpoch,
   buildGroupEmbed,
   buildGroupRow,
   makeGroupId,
   GROUP_FORMED_CLEANUP_DELAY_MS,
-  handleCreatePost,
 };
