@@ -272,7 +272,10 @@ async function handleDescriptionModalSubmit(interaction) {
   setupSessions.delete(interaction.user.id);
 
   const threadLink = `https://discord.com/channels/${interaction.guildId}/${thread.id}`;
-  await interaction.reply({ content: `✅ Your LFG forum post has been created: ${threadLink}`, flags: MessageFlags.Ephemeral });
+  await interaction.reply({
+    content: `✅ Your LFG forum post has been created: [Click here to view it](${threadLink})`,
+    flags: MessageFlags.Ephemeral,
+  });
   setTimeout(() => interaction.deleteReply().catch(() => {}), 30000);
 }
 
