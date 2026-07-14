@@ -8,10 +8,10 @@ const {
 } = require('discord.js');
 const { CATEGORIES } = require('./roleMenu');
 
-// The time dropdown covers the next few hours in half-hour increments,
-// starting from the next half-hour boundary after "now".
+// The time dropdown offers start times across the next several hours, in
+// half-hour increments, starting from the next half-hour boundary after "now".
 const SLOT_INTERVAL_MINUTES = 30;
-const SLOT_WINDOW_HOURS = 4;
+const SLOT_WINDOW_HOURS = 8;
 
 // Optional: set LFG_TIMEZONE in .env (e.g. "America/New_York") to control
 // how the time dropdown's OWN labels are displayed while picking. This has
@@ -20,6 +20,21 @@ const SLOT_WINDOW_HOURS = 4;
 // Pacific Time; override with LFG_TIMEZONE if your community's primary
 // timezone is different.
 const DROPDOWN_TIMEZONE = process.env.LFG_TIMEZONE || 'America/Los_Angeles';
+
+const DURATION_OPTIONS = [
+  { value: '30', label: '30 min' },
+  { value: '60', label: '1 Hour' },
+  { value: '90', label: '1.5 Hours' },
+  { value: '120', label: '2 Hours' },
+  { value: '150', label: '2.5 Hours' },
+  { value: '180', label: '3 Hours' },
+  { value: '210', label: '3.5 Hours' },
+  { value: '240', label: '4 Hours' },
+  { value: '270', label: '4.5 Hours' },
+  { value: '300', label: '5 Hours' },
+  { value: '330', label: '5.5 Hours' },
+  { value: '360', label: '6 Hours' },
+];
 
 const SIZE_OPTIONS = [
   { value: '2', label: 'Duo (2 players)' },
@@ -37,7 +52,7 @@ const DISBAND_CLEANUP_DELAY_MS = 10 * 1000;
 
 // In-memory state. Both of these are lost on a restart/redeploy — fine for
 // same-day LFG posts, but worth knowing if the bot redeploys mid-event.
-const setupSessions = new Map(); // userId -> { role, time, size }
+const setupSessions = new Map(); // userId -> { role, time, duration, size }
 const activeGroups = new Map(); // groupId -> group state
 
 // ---- Building the role dropdown from roleMenu.js's CATEGORIES ----
@@ -59,7 +74,7 @@ function findRoleOption(value) {
   return buildRoleOptions().find((o) => o.value === value);
 }
 
-// ---- Building the time dropdown: next 4 hours, 30-minute increments ----
+// ---- Building the time dropdown: a single start time, next 8 hours, 30-min increments ----
 function buildTimeOptions() {
   const now = new Date();
   const start = new Date(now);
@@ -77,10 +92,9 @@ function buildTimeOptions() {
   const totalSlots = (SLOT_WINDOW_HOURS * 60) / SLOT_INTERVAL_MINUTES;
   const options = [];
   for (let i = 0; i < totalSlots; i++) {
-    const slotStart = new Date(start.getTime() + i * SLOT_INTERVAL_MINUTES * 60 * 1000);
-    const slotEnd = new Date(slotStart.getTime() + SLOT_INTERVAL_MINUTES * 60 * 1000);
-    const label = `${fmt.format(slotStart)} - ${fmt.format(slotEnd)}`;
-    const epochSeconds = Math.floor(slotStart.getTime() / 1000);
+    const slot = new Date(start.getTime() + i * SLOT_INTERVAL_MINUTES * 60 * 1000);
+    const label = fmt.format(slot);
+    const epochSeconds = Math.floor(slot.getTime() / 1000);
     options.push({ value: String(epochSeconds), label });
   }
   return options;
@@ -90,6 +104,10 @@ function findTimeOption(value) {
   return buildTimeOptions().find((o) => o.value === value);
 }
 
+function findDurationOption(value) {
+  return DURATION_OPTIONS.find((o) => o.value === value);
+}
+
 function findSizeOption(value) {
   return SIZE_OPTIONS.find((o) => o.value === value);
 }
@@ -97,7 +115,7 @@ function findSizeOption(value) {
 // ---- Setup UI (the private "build your LFG post" menu) ----
 function getSession(userId) {
   if (!setupSessions.has(userId)) {
-    setupSessions.set(userId, { role: null, time: null, size: null });
+    setupSessions.set(userId, { role: null, time: null, duration: null, size: null });
   }
   return setupSessions.get(userId);
 }
@@ -116,7 +134,7 @@ function buildSetupComponents(session) {
 
   const timeSelect = new StringSelectMenuBuilder()
     .setCustomId('lfg:select:time')
-    .setPlaceholder('2. Choose a time')
+    .setPlaceholder('2. Choose a start time')
     .addOptions(
       buildTimeOptions().map((o) => ({
         value: o.value,
@@ -125,9 +143,20 @@ function buildSetupComponents(session) {
       }))
     );
 
+  const durationSelect = new StringSelectMenuBuilder()
+    .setCustomId('lfg:select:duration')
+    .setPlaceholder('3. Choose a duration')
+    .addOptions(
+      DURATION_OPTIONS.map((o) => ({
+        value: o.value,
+        label: o.label,
+        default: session.duration === o.value,
+      }))
+    );
+
   const sizeSelect = new StringSelectMenuBuilder()
     .setCustomId('lfg:select:size')
-    .setPlaceholder('3. Choose group size')
+    .setPlaceholder('4. Choose group size')
     .addOptions(
       SIZE_OPTIONS.map((o) => ({
         value: o.value,
@@ -139,10 +168,11 @@ function buildSetupComponents(session) {
   const rows = [
     new ActionRowBuilder().addComponents(roleSelect),
     new ActionRowBuilder().addComponents(timeSelect),
+    new ActionRowBuilder().addComponents(durationSelect),
     new ActionRowBuilder().addComponents(sizeSelect),
   ];
 
-  if (session.role && session.time && session.size) {
+  if (session.role && session.time && session.duration && session.size) {
     const createButton = new ButtonBuilder()
       .setCustomId('lfg:create')
       .setLabel('Create LFG Post')
@@ -156,11 +186,12 @@ function buildSetupComponents(session) {
 function buildSetupContent(session) {
   const parts = [];
   if (session.role) parts.push(`**Activity:** ${findRoleOption(session.role)?.label ?? '?'}`);
-  if (session.time) parts.push(`**Time:** ${findTimeOption(session.time)?.label ?? '?'}`);
+  if (session.time) parts.push(`**Start:** ${findTimeOption(session.time)?.label ?? '?'}`);
+  if (session.duration) parts.push(`**Duration:** ${findDurationOption(session.duration)?.label ?? '?'}`);
   if (session.size) parts.push(`**Size:** ${findSizeOption(session.size)?.label ?? '?'}`);
 
   const summary = parts.length ? parts.join('  •  ') + '\n\n' : '';
-  return `${summary}Pick an activity, a time, and a group size, then hit **Create LFG Post**.`;
+  return `${summary}Pick an activity, a start time, a duration, and a group size, then hit **Create LFG Post**.`;
 }
 
 async function sendSetupMenu(interaction) {
@@ -239,7 +270,9 @@ function buildGroupEmbed(group) {
 
   const descLines = [
     `**Activity:** ${group.roleLabel}`,
-    `**Time:** <t:${group.timeEpoch}:t> (<t:${group.timeEpoch}:R>)`,
+    `**Start:** <t:${group.timeEpoch}:t> (<t:${group.timeEpoch}:R>)`,
+    `**Duration:** ${group.durationLabel}`,
+    `**Ends around:** <t:${group.endEpoch}:t>`,
     `**Group Size:** ${group.sizeLabel}`,
   ];
   if (group.description) descLines.push(`**Description:** ${group.description}`);
@@ -254,12 +287,13 @@ function buildGroupEmbed(group) {
 
 async function handleCreateButton(interaction) {
   const session = getSession(interaction.user.id);
-  if (!session.role || !session.time || !session.size) {
-    return interaction.reply({ content: '⚠️ Please pick all three options first.', flags: MessageFlags.Ephemeral });
+  if (!session.role || !session.time || !session.duration || !session.size) {
+    return interaction.reply({ content: '⚠️ Please pick all four options first.', flags: MessageFlags.Ephemeral });
   }
 
   const roleOption = findRoleOption(session.role);
   const timeOption = findTimeOption(session.time);
+  const durationOption = findDurationOption(session.duration);
   const sizeOption = findSizeOption(session.size);
 
   const guildRole = interaction.guild.roles.cache.find((r) => r.name === roleOption.roleName);
@@ -272,13 +306,19 @@ async function handleCreateButton(interaction) {
 
   const groupId = makeGroupId();
   const sizeCap = sizeOption.value === 'any' ? Infinity : parseInt(sizeOption.value, 10);
+  const timeEpoch = parseInt(timeOption.value, 10);
+  const durationMinutes = parseInt(durationOption.value, 10);
+  const endEpoch = timeEpoch + durationMinutes * 60;
 
   const group = {
     id: groupId,
     creatorId: interaction.user.id,
     creatorTag: interaction.user.username,
     roleLabel: roleOption.label,
-    timeEpoch: parseInt(timeOption.value, 10),
+    timeEpoch,
+    durationLabel: durationOption.label,
+    durationMinutes,
+    endEpoch,
     sizeLabel: sizeOption.label,
     sizeCap,
     members: new Set([interaction.user.id]),
@@ -302,7 +342,9 @@ async function handleCreateButton(interaction) {
   group.channelId = publicMessage.channelId;
   group.messageId = publicMessage.id;
 
-  scheduleGroupCleanup(interaction.client, group, Math.max(group.timeEpoch * 1000 - Date.now(), 0));
+  // Auto-delete once the event's end time (start + duration) has passed,
+  // unless the group closes/fills/disbands sooner.
+  scheduleGroupCleanup(interaction.client, group, Math.max(group.endEpoch * 1000 - Date.now(), 0));
   setupSessions.delete(interaction.user.id);
 
   await interaction.update({ content: '✅ Your LFG post has been created below!', components: [] });
@@ -414,7 +456,7 @@ function scheduleGroupCleanup(client, group, delayMs) {
 // ---- Entry points called from eventHandler.js ----
 async function handleLfgSelectInteraction(interaction) {
   const field = interaction.customId.split(':')[2]; // "lfg:select:<field>"
-  if (!['role', 'time', 'size'].includes(field)) return;
+  if (!['role', 'time', 'duration', 'size'].includes(field)) return;
   return handleSetupSelect(interaction, field);
 }
 
@@ -439,8 +481,10 @@ module.exports = {
   // Shared building blocks, reused by lfgForum.js so both versions stay in sync.
   buildRoleOptions,
   buildTimeOptions,
+  DURATION_OPTIONS,
   findRoleOption,
   findTimeOption,
+  findDurationOption,
   findSizeOption,
   SIZE_OPTIONS,
   buildGroupEmbed,

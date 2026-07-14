@@ -12,8 +12,10 @@ const {
 const {
   buildRoleOptions,
   buildTimeOptions,
+  DURATION_OPTIONS,
   findRoleOption,
   findTimeOption,
+  findDurationOption,
   findSizeOption,
   SIZE_OPTIONS,
   buildGroupEmbed,
@@ -30,13 +32,13 @@ const FORUM_CHANNEL_ID = process.env.LFG_FORUM_CHANNEL_ID;
 // Separate in-memory state from the regular /lfg command, so both versions
 // can run side by side without interfering with each other. Lost on
 // restart/redeploy, same caveat as the regular version.
-const setupSessions = new Map(); // userId -> { role, time, size }
+const setupSessions = new Map(); // userId -> { role, time, duration, size }
 const activeGroups = new Map(); // groupId -> group state
 
 // ---- Setup UI (identical shape to the regular /lfg command, different customId prefix) ----
 function getSession(userId) {
   if (!setupSessions.has(userId)) {
-    setupSessions.set(userId, { role: null, time: null, size: null });
+    setupSessions.set(userId, { role: null, time: null, duration: null, size: null });
   }
   return setupSessions.get(userId);
 }
@@ -55,7 +57,7 @@ function buildSetupComponents(session) {
 
   const timeSelect = new StringSelectMenuBuilder()
     .setCustomId('lfgforum:select:time')
-    .setPlaceholder('2. Choose a time')
+    .setPlaceholder('2. Choose a start time')
     .addOptions(
       buildTimeOptions().map((o) => ({
         value: o.value,
@@ -64,9 +66,20 @@ function buildSetupComponents(session) {
       }))
     );
 
+  const durationSelect = new StringSelectMenuBuilder()
+    .setCustomId('lfgforum:select:duration')
+    .setPlaceholder('3. Choose a duration')
+    .addOptions(
+      DURATION_OPTIONS.map((o) => ({
+        value: o.value,
+        label: o.label,
+        default: session.duration === o.value,
+      }))
+    );
+
   const sizeSelect = new StringSelectMenuBuilder()
     .setCustomId('lfgforum:select:size')
-    .setPlaceholder('3. Choose group size')
+    .setPlaceholder('4. Choose group size')
     .addOptions(
       SIZE_OPTIONS.map((o) => ({
         value: o.value,
@@ -78,10 +91,11 @@ function buildSetupComponents(session) {
   const rows = [
     new ActionRowBuilder().addComponents(roleSelect),
     new ActionRowBuilder().addComponents(timeSelect),
+    new ActionRowBuilder().addComponents(durationSelect),
     new ActionRowBuilder().addComponents(sizeSelect),
   ];
 
-  if (session.role && session.time && session.size) {
+  if (session.role && session.time && session.duration && session.size) {
     const createButton = new ButtonBuilder()
       .setCustomId('lfgforum:create')
       .setLabel('Create Forum Post')
@@ -95,11 +109,12 @@ function buildSetupComponents(session) {
 function buildSetupContent(session) {
   const parts = [];
   if (session.role) parts.push(`**Activity:** ${findRoleOption(session.role)?.label ?? '?'}`);
-  if (session.time) parts.push(`**Time:** ${findTimeOption(session.time)?.label ?? '?'}`);
+  if (session.time) parts.push(`**Start:** ${findTimeOption(session.time)?.label ?? '?'}`);
+  if (session.duration) parts.push(`**Duration:** ${findDurationOption(session.duration)?.label ?? '?'}`);
   if (session.size) parts.push(`**Size:** ${findSizeOption(session.size)?.label ?? '?'}`);
 
   const summary = parts.length ? parts.join('  •  ') + '\n\n' : '';
-  return `${summary}Pick an activity, a time, and a group size, then hit **Create Forum Post**. You'll be asked for an optional description next.`;
+  return `${summary}Pick an activity, a start time, a duration, and a group size, then hit **Create Forum Post**. You'll be asked for an optional description next.`;
 }
 
 async function sendSetupMenu(interaction) {
@@ -130,8 +145,8 @@ async function handleSetupSelect(interaction, field) {
 // ---- Step 1: "Create Forum Post" button opens a description modal ----
 async function handleCreateButton(interaction) {
   const session = getSession(interaction.user.id);
-  if (!session.role || !session.time || !session.size) {
-    return interaction.reply({ content: '⚠️ Please pick all three options first.', flags: MessageFlags.Ephemeral });
+  if (!session.role || !session.time || !session.duration || !session.size) {
+    return interaction.reply({ content: '⚠️ Please pick all four options first.', flags: MessageFlags.Ephemeral });
   }
 
   const modal = new ModalBuilder()
@@ -153,7 +168,7 @@ async function handleCreateButton(interaction) {
 // ---- Step 2: modal submit actually creates the forum post ----
 async function handleDescriptionModalSubmit(interaction) {
   const session = getSession(interaction.user.id);
-  if (!session.role || !session.time || !session.size) {
+  if (!session.role || !session.time || !session.duration || !session.size) {
     return interaction.reply({
       content: '⚠️ Something went wrong finding your selections — please run /lfg-forum again.',
       flags: MessageFlags.Ephemeral,
@@ -162,6 +177,7 @@ async function handleDescriptionModalSubmit(interaction) {
 
   const roleOption = findRoleOption(session.role);
   const timeOption = findTimeOption(session.time);
+  const durationOption = findDurationOption(session.duration);
   const sizeOption = findSizeOption(session.size);
   const description = interaction.fields.getTextInputValue('description')?.trim() || null;
 
@@ -183,14 +199,20 @@ async function handleDescriptionModalSubmit(interaction) {
 
   const groupId = makeGroupId();
   const sizeCap = sizeOption.value === 'any' ? Infinity : parseInt(sizeOption.value, 10);
-  const baseTitle = `${roleOption.label} — ${timeOption.label} — ${sizeOption.label}`;
+  const timeEpoch = parseInt(timeOption.value, 10);
+  const durationMinutes = parseInt(durationOption.value, 10);
+  const endEpoch = timeEpoch + durationMinutes * 60;
+  const baseTitle = `${roleOption.label} — Start: ${timeOption.label} — ${durationOption.label} — ${sizeOption.label}`;
 
   const group = {
     id: groupId,
     creatorId: interaction.user.id,
     creatorTag: interaction.user.username,
     roleLabel: roleOption.label,
-    timeEpoch: parseInt(timeOption.value, 10),
+    timeEpoch,
+    durationLabel: durationOption.label,
+    durationMinutes,
+    endEpoch,
     sizeLabel: sizeOption.label,
     description,
     baseTitle,
@@ -223,7 +245,9 @@ async function handleDescriptionModalSubmit(interaction) {
 
   group.threadId = thread.id;
 
-  scheduleForumGroupCleanup(interaction.client, group, Math.max(group.timeEpoch * 1000 - Date.now(), 0));
+  // Auto-delete once the event's end time (start + duration) has passed,
+  // unless the group closes/fills/disbands sooner.
+  scheduleForumGroupCleanup(interaction.client, group, Math.max(group.endEpoch * 1000 - Date.now(), 0));
   setupSessions.delete(interaction.user.id);
 
   await interaction.reply({ content: `✅ Your LFG forum post has been created: ${thread}`, flags: MessageFlags.Ephemeral });
@@ -336,7 +360,7 @@ function scheduleForumGroupCleanup(client, group, delayMs) {
 // ---- Entry points called from eventHandler.js ----
 async function handleLfgForumSelectInteraction(interaction) {
   const field = interaction.customId.split(':')[2]; // "lfgforum:select:<field>"
-  if (!['role', 'time', 'size'].includes(field)) return;
+  if (!['role', 'time', 'duration', 'size'].includes(field)) return;
   return handleSetupSelect(interaction, field);
 }
 
