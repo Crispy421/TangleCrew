@@ -225,13 +225,17 @@ function makeGroupId() {
 
 // status: 'open' | 'closed' (full or manually closed) | 'disbanded'
 // prefix lets the forum variant reuse this with its own customId namespace.
-// Anyone can Join/Close/Disband/Reopen — not restricted to the creator.
+// Anyone can Join/Leave/Close/Disband/Reopen — not restricted to the creator.
 function buildGroupRow(groupId, status, prefix = 'lfggroup') {
   if (status === 'open') {
     const join = new ButtonBuilder()
       .setCustomId(`${prefix}:join:${groupId}`)
       .setLabel('Join Group')
       .setStyle(ButtonStyle.Success);
+    const leave = new ButtonBuilder()
+      .setCustomId(`${prefix}:leave:${groupId}`)
+      .setLabel('Leave Group')
+      .setStyle(ButtonStyle.Secondary);
     const close = new ButtonBuilder()
       .setCustomId(`${prefix}:close:${groupId}`)
       .setLabel('Close Group')
@@ -240,15 +244,19 @@ function buildGroupRow(groupId, status, prefix = 'lfggroup') {
       .setCustomId(`${prefix}:disband:${groupId}`)
       .setLabel('Disband Group')
       .setStyle(ButtonStyle.Danger);
-    return new ActionRowBuilder().addComponents(join, close, disband);
+    return new ActionRowBuilder().addComponents(join, leave, close, disband);
   }
 
-  // closed (full or manually closed) — offer to reopen
+  // closed (full or manually closed) — offer to reopen or leave
   const reopen = new ButtonBuilder()
     .setCustomId(`${prefix}:reopen:${groupId}`)
     .setLabel('Reopen Group')
     .setStyle(ButtonStyle.Primary);
-  return new ActionRowBuilder().addComponents(reopen);
+  const leave = new ButtonBuilder()
+    .setCustomId(`${prefix}:leave:${groupId}`)
+    .setLabel('Leave Group')
+    .setStyle(ButtonStyle.Secondary);
+  return new ActionRowBuilder().addComponents(reopen, leave);
 }
 
 function buildGroupEmbed(group) {
@@ -372,6 +380,22 @@ async function handleJoinButton(interaction, groupId) {
   }
 }
 
+async function handleLeaveButton(interaction, groupId) {
+  const group = activeGroups.get(groupId);
+  if (!group) {
+    return interaction.reply({ content: '⚠️ This group no longer exists.', flags: MessageFlags.Ephemeral });
+  }
+  if (!group.members.has(interaction.user.id)) {
+    return interaction.reply({ content: 'You\'re not in this group.', flags: MessageFlags.Ephemeral });
+  }
+
+  group.members.delete(interaction.user.id);
+  const embed = buildGroupEmbed(group);
+  const row = buildGroupRow(groupId, group.status);
+  await interaction.update({ embeds: [embed], components: [row] });
+  await interaction.followUp({ content: 'You left the group.', flags: MessageFlags.Ephemeral });
+}
+
 async function handleCloseButton(interaction, groupId) {
   const group = activeGroups.get(groupId);
   if (!group) {
@@ -473,6 +497,7 @@ async function handleLfgSelectInteraction(interaction) {
 async function handleLfgGroupButtonInteraction(interaction) {
   const [, action, groupId] = interaction.customId.split(':'); // "lfggroup:<action>:<groupId>"
   if (action === 'join') return handleJoinButton(interaction, groupId);
+  if (action === 'leave') return handleLeaveButton(interaction, groupId);
   if (action === 'close') return handleCloseButton(interaction, groupId);
   if (action === 'disband') return handleDisbandButton(interaction, groupId);
   if (action === 'reopen') return handleReopenButton(interaction, groupId);

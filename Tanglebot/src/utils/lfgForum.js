@@ -316,6 +316,22 @@ async function handleJoinButton(interaction, groupId) {
   }
 }
 
+async function handleLeaveButton(interaction, groupId) {
+  const group = activeGroups.get(groupId);
+  if (!group) {
+    return interaction.reply({ content: '⚠️ This group no longer exists.', flags: MessageFlags.Ephemeral });
+  }
+  if (!group.members.has(interaction.user.id)) {
+    return interaction.reply({ content: 'You\'re not in this group.', flags: MessageFlags.Ephemeral });
+  }
+
+  group.members.delete(interaction.user.id);
+  const embed = buildGroupEmbed(group);
+  const row = buildGroupRow(groupId, group.status, 'lfgforumgroup');
+  await interaction.update({ embeds: [embed], components: [row] });
+  await interaction.followUp({ content: 'You left the group.', flags: MessageFlags.Ephemeral });
+}
+
 async function handleCloseButton(interaction, groupId) {
   const group = activeGroups.get(groupId);
   if (!group) {
@@ -413,6 +429,7 @@ async function handleLfgForumModalSubmit(interaction) {
 async function handleLfgForumGroupButtonInteraction(interaction) {
   const [, action, groupId] = interaction.customId.split(':'); // "lfgforumgroup:<action>:<groupId>"
   if (action === 'join') return handleJoinButton(interaction, groupId);
+  if (action === 'leave') return handleLeaveButton(interaction, groupId);
   if (action === 'close') return handleCloseButton(interaction, groupId);
   if (action === 'disband') return handleDisbandButton(interaction, groupId);
   if (action === 'reopen') return handleReopenButton(interaction, groupId);
