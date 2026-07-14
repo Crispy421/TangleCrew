@@ -16,6 +16,7 @@ const {
 const {
   handleLfgForumSelectInteraction,
   handleLfgForumButtonInteraction,
+  handleLfgForumModalSubmit,
   handleLfgForumGroupButtonInteraction,
 } = require('../utils/lfgForum');
 
@@ -96,14 +97,14 @@ function loadEvents(client) {
           await handleLfgGroupButtonInteraction(interaction);
         } catch (err) {
           console.error('LFG group button interaction error:', err);
-          await replyOrFollowUp(interaction, 'Something went wrong joining that group.');
+          await replyOrFollowUp(interaction, 'Something went wrong updating that group.');
         }
       } else if (interaction.customId.startsWith('lfgforumgroup:')) {
         try {
           await handleLfgForumGroupButtonInteraction(interaction);
         } catch (err) {
           console.error('LFG forum group button interaction error:', err);
-          await replyOrFollowUp(interaction, 'Something went wrong joining that group.');
+          await replyOrFollowUp(interaction, 'Something went wrong updating that group.');
         }
       } else if (interaction.customId.startsWith('lfgforum:')) {
         try {
@@ -137,6 +138,18 @@ function loadEvents(client) {
         } catch (err) {
           console.error('LFG select interaction error:', err);
           await replyOrFollowUp(interaction, 'Something went wrong updating your LFG setup.');
+        }
+      }
+      return;
+    }
+
+    if (interaction.isModalSubmit()) {
+      if (interaction.customId.startsWith('lfgforum:')) {
+        try {
+          await handleLfgForumModalSubmit(interaction);
+        } catch (err) {
+          console.error('LFG forum modal submit error:', err);
+          await replyOrFollowUp(interaction, 'Something went wrong creating your LFG forum post.');
         }
       }
       return;
