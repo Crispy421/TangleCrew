@@ -29,6 +29,12 @@ const SIZE_OPTIONS = [
   { value: 'any', label: 'Any (no limit)' },
 ];
 
+// How long a full/manually-closed group's post stays up before auto-deleting.
+const GROUP_FORMED_CLEANUP_DELAY_MS = 5 * 60 * 1000;
+// How long a disbanded group's post stays up before auto-deleting (short —
+// just long enough for the "Disbanded" state to be visible).
+const DISBAND_CLEANUP_DELAY_MS = 10 * 1000;
+
 // In-memory state. Both of these are lost on a restart/redeploy — fine for
 // same-day LFG posts, but worth knowing if the bot redeploys mid-event.
 const setupSessions = new Map(); // userId -> { role, time, size }
@@ -180,28 +186,69 @@ function makeGroupId() {
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 }
 
-function buildGroupRow(groupId, closed) {
-  const button = new ButtonBuilder()
-    .setCustomId(`lfggroup:join:${groupId}`)
-    .setLabel(closed ? 'Group Full' : 'Join Group')
-    .setStyle(closed ? ButtonStyle.Secondary : ButtonStyle.Success)
-    .setDisabled(closed);
-  return new ActionRowBuilder().addComponents(button);
+// status: 'open' | 'closed' (full or manually closed) | 'disbanded'
+// prefix lets the forum variant reuse this with its own customId namespace.
+function buildGroupRow(groupId, status, prefix = 'lfggroup') {
+  if (status === 'open') {
+    const join = new ButtonBuilder()
+      .setCustomId(`${prefix}:join:${groupId}`)
+      .setLabel('Join Group')
+      .setStyle(ButtonStyle.Success);
+    const close = new ButtonBuilder()
+      .setCustomId(`${prefix}:close:${groupId}`)
+      .setLabel('Close Group')
+      .setStyle(ButtonStyle.Primary);
+    const disband = new ButtonBuilder()
+      .setCustomId(`${prefix}:disband:${groupId}`)
+      .setLabel('Disband Group')
+      .setStyle(ButtonStyle.Danger);
+    return new ActionRowBuilder().addComponents(join, close, disband);
+  }
+
+  if (status === 'closed') {
+    const full = new ButtonBuilder()
+      .setCustomId(`${prefix}:full:${groupId}`)
+      .setLabel('Group Full')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(true);
+    return new ActionRowBuilder().addComponents(full);
+  }
+
+  // disbanded
+  const disbanded = new ButtonBuilder()
+    .setCustomId(`${prefix}:disbanded:${groupId}`)
+    .setLabel('Disbanded')
+    .setStyle(ButtonStyle.Secondary)
+    .setDisabled(true);
+  return new ActionRowBuilder().addComponents(disbanded);
 }
 
 function buildGroupEmbed(group) {
   const capDisplay = group.sizeCap === Infinity ? '∞' : String(group.sizeCap);
   const memberLines = [...group.members].map((id) => `<@${id}>`).join('\n');
 
+  let title = '🔍 Looking For Group';
+  let color = 0xc2a24c;
+  if (group.status === 'closed') {
+    title = '🔒 Looking For Group — Full';
+    color = 0x2ecc71;
+  } else if (group.status === 'disbanded') {
+    title = '❌ Looking For Group — Disbanded';
+    color = 0xe74c3c;
+  }
+
+  const descLines = [
+    `**Activity:** ${group.roleLabel}`,
+    `**Time:** <t:${group.timeEpoch}:t> (<t:${group.timeEpoch}:R>)`,
+    `**Group Size:** ${group.sizeLabel}`,
+  ];
+  if (group.description) descLines.push(`**Description:** ${group.description}`);
+  descLines.push('', `**Members (${group.members.size}/${capDisplay}):**`, memberLines || '_none yet_');
+
   return new EmbedBuilder()
-    .setTitle(group.closed ? '🔒 Looking For Group — Full' : '🔍 Looking For Group')
-    .setDescription(
-      `**Activity:** ${group.roleLabel}\n` +
-      `**Time:** <t:${group.timeEpoch}:t> (<t:${group.timeEpoch}:R>)\n` +
-      `**Group Size:** ${group.sizeLabel}\n\n` +
-      `**Members (${group.members.size}/${capDisplay}):**\n${memberLines}`
-    )
-    .setColor(group.closed ? 0x2ecc71 : 0xc2a24c)
+    .setTitle(title)
+    .setDescription(descLines.join('\n'))
+    .setColor(color)
     .setFooter({ text: `Started by ${group.creatorTag}` });
 }
 
@@ -235,7 +282,7 @@ async function handleCreateButton(interaction) {
     sizeLabel: sizeOption.label,
     sizeCap,
     members: new Set([interaction.user.id]),
-    closed: false,
+    status: 'open',
     channelId: null,
     messageId: null,
     formedMessageId: null,
@@ -244,7 +291,7 @@ async function handleCreateButton(interaction) {
   activeGroups.set(groupId, group);
 
   const embed = buildGroupEmbed(group);
-  const row = buildGroupRow(groupId, false);
+  const row = buildGroupRow(groupId, 'open');
 
   const publicMessage = await interaction.channel.send({
     content: `<@&${guildRole.id}>`,
@@ -267,8 +314,11 @@ async function handleJoinButton(interaction, groupId) {
   if (!group) {
     return interaction.reply({ content: '⚠️ This group no longer exists.', flags: MessageFlags.Ephemeral });
   }
-  if (group.closed) {
+  if (group.status === 'closed') {
     return interaction.reply({ content: '⚠️ This group is already full.', flags: MessageFlags.Ephemeral });
+  }
+  if (group.status === 'disbanded') {
+    return interaction.reply({ content: '⚠️ This group has been disbanded.', flags: MessageFlags.Ephemeral });
   }
   if (group.members.has(interaction.user.id)) {
     return interaction.reply({ content: 'You\'re already in this group.', flags: MessageFlags.Ephemeral });
@@ -277,11 +327,11 @@ async function handleJoinButton(interaction, groupId) {
   group.members.add(interaction.user.id);
   const justFilled = group.sizeCap !== Infinity && group.members.size >= group.sizeCap;
   if (justFilled) {
-    group.closed = true;
+    group.status = 'closed';
   }
 
   const embed = buildGroupEmbed(group);
-  const row = buildGroupRow(groupId, group.closed);
+  const row = buildGroupRow(groupId, group.status);
 
   await interaction.update({ embeds: [embed], components: [row] });
   await interaction.followUp({ content: '✅ You joined the group!', flags: MessageFlags.Ephemeral });
@@ -292,10 +342,54 @@ async function handleJoinButton(interaction, groupId) {
       content: `${mentions}\n🎉 **Group formed, Good luck!**`,
     });
     group.formedMessageId = formedMessage.id;
-
-    // Group is done — delete everything in 5 minutes instead of waiting for the original event time.
-    scheduleGroupCleanup(interaction.client, group, 5 * 60 * 1000);
+    scheduleGroupCleanup(interaction.client, group, GROUP_FORMED_CLEANUP_DELAY_MS);
   }
+}
+
+async function handleCloseButton(interaction, groupId) {
+  const group = activeGroups.get(groupId);
+  if (!group) {
+    return interaction.reply({ content: '⚠️ This group no longer exists.', flags: MessageFlags.Ephemeral });
+  }
+  if (interaction.user.id !== group.creatorId) {
+    return interaction.reply({ content: '⚠️ Only the group creator can close this group.', flags: MessageFlags.Ephemeral });
+  }
+  if (group.status !== 'open') {
+    return interaction.reply({ content: '⚠️ This group is already closed.', flags: MessageFlags.Ephemeral });
+  }
+
+  group.status = 'closed';
+  const embed = buildGroupEmbed(group);
+  const row = buildGroupRow(groupId, 'closed');
+  await interaction.update({ embeds: [embed], components: [row] });
+
+  const mentions = [...group.members].map((id) => `<@${id}>`).join(' ');
+  const formedMessage = await interaction.channel.send({
+    content: `${mentions}\n🎉 **Group formed, Good luck!**`,
+  });
+  group.formedMessageId = formedMessage.id;
+
+  scheduleGroupCleanup(interaction.client, group, GROUP_FORMED_CLEANUP_DELAY_MS);
+}
+
+async function handleDisbandButton(interaction, groupId) {
+  const group = activeGroups.get(groupId);
+  if (!group) {
+    return interaction.reply({ content: '⚠️ This group no longer exists.', flags: MessageFlags.Ephemeral });
+  }
+  if (interaction.user.id !== group.creatorId) {
+    return interaction.reply({ content: '⚠️ Only the group creator can disband this group.', flags: MessageFlags.Ephemeral });
+  }
+  if (group.status !== 'open') {
+    return interaction.reply({ content: '⚠️ This group is already closed.', flags: MessageFlags.Ephemeral });
+  }
+
+  group.status = 'disbanded';
+  const embed = buildGroupEmbed(group);
+  const row = buildGroupRow(groupId, 'disbanded');
+  await interaction.update({ embeds: [embed], components: [row] });
+
+  scheduleGroupCleanup(interaction.client, group, DISBAND_CLEANUP_DELAY_MS);
 }
 
 function scheduleGroupCleanup(client, group, delayMs) {
@@ -331,8 +425,10 @@ async function handleLfgButtonInteraction(interaction) {
 }
 
 async function handleLfgGroupButtonInteraction(interaction) {
-  const [, , groupId] = interaction.customId.split(':'); // "lfggroup:join:<groupId>"
-  return handleJoinButton(interaction, groupId);
+  const [, action, groupId] = interaction.customId.split(':'); // "lfggroup:<action>:<groupId>"
+  if (action === 'join') return handleJoinButton(interaction, groupId);
+  if (action === 'close') return handleCloseButton(interaction, groupId);
+  if (action === 'disband') return handleDisbandButton(interaction, groupId);
 }
 
 module.exports = {
@@ -350,4 +446,6 @@ module.exports = {
   buildGroupEmbed,
   buildGroupRow,
   makeGroupId,
+  GROUP_FORMED_CLEANUP_DELAY_MS,
+  DISBAND_CLEANUP_DELAY_MS,
 };
