@@ -294,6 +294,7 @@ async function handleDescriptionModalSubmit(interaction) {
   setupSessions.delete(interaction.user.id);
 
   await interaction.reply({ content: `✅ Your LFG forum post has been created: ${thread}`, flags: MessageFlags.Ephemeral });
+  setTimeout(() => interaction.deleteReply().catch(() => {}), 30000);
 }
 
 async function renameThread(interaction, group, closed) {
