@@ -25,6 +25,7 @@ const {
   buildGroupRow,
   makeGroupId,
   GROUP_FORMED_CLEANUP_DELAY_MS,
+  computeStartTimeCleanupDelay,
 } = require('./lfgGroup');
 
 // The Discord Forum Channel where /lfg-forum posts get created as threads.
@@ -268,7 +269,7 @@ async function handleDescriptionModalSubmit(interaction) {
 
   // Auto-delete once the chosen start time has passed, unless the group
   // closes/fills/disbands sooner.
-  scheduleForumGroupCleanup(interaction.client, group, Math.max(group.timeEpoch * 1000 - Date.now(), 0));
+  scheduleForumGroupCleanup(interaction.client, group, computeStartTimeCleanupDelay(group.timeEpoch));
   setupSessions.delete(interaction.user.id);
 
   const threadLink = `https://discord.com/channels/${interaction.guildId}/${thread.id}`;
@@ -371,7 +372,7 @@ async function handleReopenButton(interaction, groupId) {
   await interaction.update({ embeds: [embed], components: [row] });
   await renameThread(interaction, group, 'Open');
 
-  scheduleForumGroupCleanup(interaction.client, group, Math.max(group.timeEpoch * 1000 - Date.now(), 0));
+  scheduleForumGroupCleanup(interaction.client, group, computeStartTimeCleanupDelay(group.timeEpoch));
 }
 
 async function handleDisbandButton(interaction, groupId) {

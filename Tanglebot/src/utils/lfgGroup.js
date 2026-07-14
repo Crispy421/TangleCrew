@@ -92,6 +92,15 @@ function resolveTimeEpoch(offsetMinutesValue) {
 // How long a full/manually-closed group's post stays up before auto-deleting.
 const GROUP_FORMED_CLEANUP_DELAY_MS = 5 * 60 * 1000;
 
+// Every post gets at least this long before the "start time has passed"
+// auto-delete can fire — otherwise picking "Now" (or 15 Min) would delete
+// the post almost immediately, before anyone has a chance to see or join it.
+const MIN_POST_LIFETIME_MS = 15 * 60 * 1000;
+
+function computeStartTimeCleanupDelay(timeEpoch) {
+  return Math.max(timeEpoch * 1000 - Date.now(), MIN_POST_LIFETIME_MS);
+}
+
 // In-memory state. Both of these are lost on a restart/redeploy — fine for
 // same-day LFG posts, but worth knowing if the bot redeploys mid-event.
 const setupSessions = new Map(); // userId -> { category, activity, size, time }
@@ -339,7 +348,7 @@ async function handleCreatePost(interaction) {
 
   // Auto-delete once the chosen start time has passed, unless the group
   // closes/fills/disbands sooner.
-  scheduleGroupCleanup(interaction.client, group, Math.max(group.timeEpoch * 1000 - Date.now(), 0));
+  scheduleGroupCleanup(interaction.client, group, computeStartTimeCleanupDelay(group.timeEpoch));
   setupSessions.delete(interaction.user.id);
 
   await interaction.update({ content: '✅ Your LFG post has been created below!', components: [] });
@@ -434,7 +443,7 @@ async function handleReopenButton(interaction, groupId) {
   await interaction.update({ embeds: [embed], components: [row] });
 
   // Back to the original expiry rule now that it's open again.
-  scheduleGroupCleanup(interaction.client, group, Math.max(group.timeEpoch * 1000 - Date.now(), 0));
+  scheduleGroupCleanup(interaction.client, group, computeStartTimeCleanupDelay(group.timeEpoch));
 }
 
 async function handleDisbandButton(interaction, groupId) {
@@ -523,4 +532,5 @@ module.exports = {
   buildGroupRow,
   makeGroupId,
   GROUP_FORMED_CLEANUP_DELAY_MS,
+  computeStartTimeCleanupDelay,
 };
