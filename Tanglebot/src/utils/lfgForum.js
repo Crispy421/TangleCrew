@@ -271,7 +271,8 @@ async function handleDescriptionModalSubmit(interaction) {
   scheduleForumGroupCleanup(interaction.client, group, Math.max(group.timeEpoch * 1000 - Date.now(), 0));
   setupSessions.delete(interaction.user.id);
 
-  await interaction.reply({ content: `✅ Your LFG forum post has been created: ${thread}`, flags: MessageFlags.Ephemeral });
+  const threadLink = `https://discord.com/channels/${interaction.guildId}/${thread.id}`;
+  await interaction.reply({ content: `✅ Your LFG forum post has been created: ${threadLink}`, flags: MessageFlags.Ephemeral });
   setTimeout(() => interaction.deleteReply().catch(() => {}), 30000);
 }
 
