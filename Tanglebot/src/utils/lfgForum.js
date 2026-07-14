@@ -22,7 +22,6 @@ const {
   buildGroupRow,
   makeGroupId,
   GROUP_FORMED_CLEANUP_DELAY_MS,
-  DISBAND_CLEANUP_DELAY_MS,
 } = require('./lfgGroup');
 
 // The Discord Forum Channel where /lfg-forum posts get created as threads.
@@ -237,7 +236,7 @@ async function handleDescriptionModalSubmit(interaction) {
   // forum's post-list preview snippet, which pulls from the start of the
   // message text. The role ping still fires a notification wherever it sits.
   const startContent = description
-    ? `${description}\n\n<@&${guildRole.id}>`
+    ? `**${description}**\n\n<@&${guildRole.id}>`
     : `<@&${guildRole.id}>`;
 
   const thread = await forumChannel.threads.create({
@@ -340,12 +339,20 @@ async function handleDisbandButton(interaction, groupId) {
   }
 
   group.status = 'disbanded';
-  const embed = buildGroupEmbed(group);
-  const row = buildGroupRow(groupId, 'disbanded', 'lfgforumgroup');
-  await interaction.update({ embeds: [embed], components: [row] });
-  await renameThread(interaction, group, true);
+  if (group.cleanupTimeoutId) {
+    clearTimeout(group.cleanupTimeoutId);
+  }
 
-  scheduleForumGroupCleanup(interaction.client, group, DISBAND_CLEANUP_DELAY_MS);
+  await interaction.deferUpdate();
+
+  try {
+    const thread = await interaction.client.channels.fetch(group.threadId);
+    await thread.delete();
+  } catch (err) {
+    console.error(`Could not delete disbanded LFG forum post ${group.id}:`, err.message);
+  }
+
+  activeGroups.delete(groupId);
 }
 
 function scheduleForumGroupCleanup(client, group, delayMs) {

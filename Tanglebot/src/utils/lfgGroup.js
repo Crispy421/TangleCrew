@@ -427,11 +427,23 @@ async function handleDisbandButton(interaction, groupId) {
   }
 
   group.status = 'disbanded';
-  const embed = buildGroupEmbed(group);
-  const row = buildGroupRow(groupId, 'disbanded');
-  await interaction.update({ embeds: [embed], components: [row] });
+  if (group.cleanupTimeoutId) {
+    clearTimeout(group.cleanupTimeoutId);
+  }
 
-  scheduleGroupCleanup(interaction.client, group, DISBAND_CLEANUP_DELAY_MS);
+  await interaction.deferUpdate();
+
+  try {
+    const channel = await interaction.client.channels.fetch(group.channelId);
+    await channel.messages.fetch(group.messageId).then((m) => m.delete()).catch(() => {});
+    if (group.formedMessageId) {
+      await channel.messages.fetch(group.formedMessageId).then((m) => m.delete()).catch(() => {});
+    }
+  } catch (err) {
+    console.error(`Could not delete disbanded LFG post ${group.id}:`, err.message);
+  }
+
+  activeGroups.delete(groupId);
 }
 
 function scheduleGroupCleanup(client, group, delayMs) {
