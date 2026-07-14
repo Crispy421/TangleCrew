@@ -13,6 +13,11 @@ const {
   handleLfgButtonInteraction,
   handleLfgGroupButtonInteraction,
 } = require('../utils/lfgGroup');
+const {
+  handleLfgForumSelectInteraction,
+  handleLfgForumButtonInteraction,
+  handleLfgForumGroupButtonInteraction,
+} = require('../utils/lfgForum');
 
 function loadEvents(client) {
   const submissionConfig = loadSubmissionConfig();
@@ -93,6 +98,20 @@ function loadEvents(client) {
           console.error('LFG group button interaction error:', err);
           await replyOrFollowUp(interaction, 'Something went wrong joining that group.');
         }
+      } else if (interaction.customId.startsWith('lfgforumgroup:')) {
+        try {
+          await handleLfgForumGroupButtonInteraction(interaction);
+        } catch (err) {
+          console.error('LFG forum group button interaction error:', err);
+          await replyOrFollowUp(interaction, 'Something went wrong joining that group.');
+        }
+      } else if (interaction.customId.startsWith('lfgforum:')) {
+        try {
+          await handleLfgForumButtonInteraction(interaction);
+        } catch (err) {
+          console.error('LFG forum setup button interaction error:', err);
+          await replyOrFollowUp(interaction, 'Something went wrong creating your LFG forum post.');
+        }
       } else if (interaction.customId.startsWith('lfg:')) {
         try {
           await handleLfgButtonInteraction(interaction);
@@ -105,7 +124,14 @@ function loadEvents(client) {
     }
 
     if (interaction.isStringSelectMenu()) {
-      if (interaction.customId.startsWith('lfg:')) {
+      if (interaction.customId.startsWith('lfgforum:')) {
+        try {
+          await handleLfgForumSelectInteraction(interaction);
+        } catch (err) {
+          console.error('LFG forum select interaction error:', err);
+          await replyOrFollowUp(interaction, 'Something went wrong updating your LFG forum setup.');
+        }
+      } else if (interaction.customId.startsWith('lfg:')) {
         try {
           await handleLfgSelectInteraction(interaction);
         } catch (err) {
