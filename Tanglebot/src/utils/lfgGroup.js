@@ -238,6 +238,8 @@ async function handleCreateButton(interaction) {
     closed: false,
     channelId: null,
     messageId: null,
+    formedMessageId: null,
+    cleanupTimeoutId: null,
   };
   activeGroups.set(groupId, group);
 
@@ -253,7 +255,7 @@ async function handleCreateButton(interaction) {
   group.channelId = publicMessage.channelId;
   group.messageId = publicMessage.id;
 
-  scheduleGroupCleanup(interaction.client, group);
+  scheduleGroupCleanup(interaction.client, group, Math.max(group.timeEpoch * 1000 - Date.now(), 0));
   setupSessions.delete(interaction.user.id);
 
   await interaction.update({ content: '✅ Your LFG post has been created below!', components: [] });
@@ -273,7 +275,8 @@ async function handleJoinButton(interaction, groupId) {
   }
 
   group.members.add(interaction.user.id);
-  if (group.sizeCap !== Infinity && group.members.size >= group.sizeCap) {
+  const justFilled = group.sizeCap !== Infinity && group.members.size >= group.sizeCap;
+  if (justFilled) {
     group.closed = true;
   }
 
@@ -282,20 +285,36 @@ async function handleJoinButton(interaction, groupId) {
 
   await interaction.update({ embeds: [embed], components: [row] });
   await interaction.followUp({ content: '✅ You joined the group!', flags: MessageFlags.Ephemeral });
+
+  if (justFilled) {
+    const mentions = [...group.members].map((id) => `<@${id}>`).join(' ');
+    const formedMessage = await interaction.channel.send({
+      content: `${mentions}\n🎉 **Group formed, Good luck!**`,
+    });
+    group.formedMessageId = formedMessage.id;
+
+    // Group is done — delete everything in 5 minutes instead of waiting for the original event time.
+    scheduleGroupCleanup(interaction.client, group, 5 * 60 * 1000);
+  }
 }
 
-function scheduleGroupCleanup(client, group) {
-  const delay = Math.max(group.timeEpoch * 1000 - Date.now(), 0);
-  setTimeout(async () => {
+function scheduleGroupCleanup(client, group, delayMs) {
+  if (group.cleanupTimeoutId) {
+    clearTimeout(group.cleanupTimeoutId);
+  }
+
+  group.cleanupTimeoutId = setTimeout(async () => {
     try {
       const channel = await client.channels.fetch(group.channelId);
-      const message = await channel.messages.fetch(group.messageId);
-      await message.delete();
+      await channel.messages.fetch(group.messageId).then((m) => m.delete()).catch(() => {});
+      if (group.formedMessageId) {
+        await channel.messages.fetch(group.formedMessageId).then((m) => m.delete()).catch(() => {});
+      }
     } catch (err) {
       console.error(`Could not delete expired LFG post ${group.id}:`, err.message);
     }
     activeGroups.delete(group.id);
-  }, delay);
+  }, delayMs);
 }
 
 // ---- Entry points called from eventHandler.js ----
@@ -321,4 +340,14 @@ module.exports = {
   handleLfgSelectInteraction,
   handleLfgButtonInteraction,
   handleLfgGroupButtonInteraction,
+  // Shared building blocks, reused by lfgForum.js so both versions stay in sync.
+  buildRoleOptions,
+  buildTimeOptions,
+  findRoleOption,
+  findTimeOption,
+  findSizeOption,
+  SIZE_OPTIONS,
+  buildGroupEmbed,
+  buildGroupRow,
+  makeGroupId,
 };
