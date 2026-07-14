@@ -233,11 +233,18 @@ async function handleDescriptionModalSubmit(interaction) {
     (t) => t.name.toLowerCase() === roleOption.roleName.toLowerCase()
   );
 
+  // Description (if provided) leads the message content so it shows in the
+  // forum's post-list preview snippet, which pulls from the start of the
+  // message text. The role ping still fires a notification wherever it sits.
+  const startContent = description
+    ? `${description}\n\n<@&${guildRole.id}>`
+    : `<@&${guildRole.id}>`;
+
   const thread = await forumChannel.threads.create({
     name: `[Open] ${baseTitle}`,
     appliedTags: matchingTag ? [matchingTag.id] : [],
     message: {
-      content: `<@&${guildRole.id}>`,
+      content: startContent,
       embeds: [embed],
       components: [row],
     },
