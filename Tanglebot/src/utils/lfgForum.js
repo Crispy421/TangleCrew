@@ -10,14 +10,16 @@ const {
   ChannelType,
 } = require('discord.js');
 const {
-  buildRoleOptions,
+  CATEGORY_OPTIONS,
+  findCategoryOption,
+  getActivityOptions,
+  findActivityOption,
+  buildSizeOptions,
+  findSizeOption,
   buildTimeOptions,
   DURATION_OPTIONS,
-  findRoleOption,
   findTimeOption,
   findDurationOption,
-  findSizeOption,
-  SIZE_OPTIONS,
   buildGroupEmbed,
   buildGroupRow,
   makeGroupId,
@@ -31,75 +33,90 @@ const FORUM_CHANNEL_ID = process.env.LFG_FORUM_CHANNEL_ID;
 // Separate in-memory state from the regular /lfg command, so both versions
 // can run side by side without interfering with each other. Lost on
 // restart/redeploy, same caveat as the regular version.
-const setupSessions = new Map(); // userId -> { role, time, duration, size }
+const setupSessions = new Map(); // userId -> { category, activity, size, time, duration }
 const activeGroups = new Map(); // groupId -> group state
 
-// ---- Setup UI (identical shape to the regular /lfg command, different customId prefix) ----
+// ---- Setup UI (accordion, identical shape to /lfg, different customId prefix) ----
+// No separate "Create" button — 5 dropdowns already use all of Discord's
+// 5 component rows. Once Duration (the last one) is filled, this opens the
+// description modal directly instead of waiting for a button click.
 function getSession(userId) {
   if (!setupSessions.has(userId)) {
-    setupSessions.set(userId, { role: null, time: null, duration: null, size: null });
+    setupSessions.set(userId, { category: null, activity: null, size: null, time: null, duration: null });
   }
   return setupSessions.get(userId);
 }
 
 function buildSetupComponents(session) {
-  const roleSelect = new StringSelectMenuBuilder()
-    .setCustomId('lfgforum:select:role')
-    .setPlaceholder('1. Choose an activity')
+  const rows = [];
+
+  const categorySelect = new StringSelectMenuBuilder()
+    .setCustomId('lfgforum:select:category')
+    .setPlaceholder('1. Choose a category')
     .addOptions(
-      buildRoleOptions().map((o) => ({
-        value: o.value,
+      CATEGORY_OPTIONS.map((o) => ({
+        value: o.key,
         label: o.label,
-        default: session.role === o.value,
+        default: session.category === o.key,
       }))
     );
+  rows.push(new ActionRowBuilder().addComponents(categorySelect));
 
-  const timeSelect = new StringSelectMenuBuilder()
-    .setCustomId('lfgforum:select:time')
-    .setPlaceholder('2. Choose a start time')
-    .addOptions(
-      buildTimeOptions().map((o) => ({
-        value: o.value,
-        label: o.label,
-        default: session.time === o.value,
-      }))
-    );
+  if (session.category) {
+    const activitySelect = new StringSelectMenuBuilder()
+      .setCustomId('lfgforum:select:activity')
+      .setPlaceholder('2. Choose an activity')
+      .addOptions(
+        getActivityOptions(session.category).map((r) => ({
+          value: r.value,
+          label: `${r.label} (max ${r.maxPlayers})`,
+          default: session.activity === r.value,
+        }))
+      );
+    rows.push(new ActionRowBuilder().addComponents(activitySelect));
+  }
 
-  const durationSelect = new StringSelectMenuBuilder()
-    .setCustomId('lfgforum:select:duration')
-    .setPlaceholder('3. Choose a duration')
-    .addOptions(
-      DURATION_OPTIONS.map((o) => ({
-        value: o.value,
-        label: o.label,
-        default: session.duration === o.value,
-      }))
-    );
+  if (session.category && session.activity) {
+    const activityOption = findActivityOption(session.category, session.activity);
+    const sizeSelect = new StringSelectMenuBuilder()
+      .setCustomId('lfgforum:select:size')
+      .setPlaceholder('3. Choose group size')
+      .addOptions(
+        buildSizeOptions(activityOption.maxPlayers).map((o) => ({
+          value: o.value,
+          label: o.label,
+          default: session.size === o.value,
+        }))
+      );
+    rows.push(new ActionRowBuilder().addComponents(sizeSelect));
+  }
 
-  const sizeSelect = new StringSelectMenuBuilder()
-    .setCustomId('lfgforum:select:size')
-    .setPlaceholder('4. Choose group size')
-    .addOptions(
-      SIZE_OPTIONS.map((o) => ({
-        value: o.value,
-        label: o.label,
-        default: session.size === o.value,
-      }))
-    );
+  if (session.category && session.activity && session.size) {
+    const timeSelect = new StringSelectMenuBuilder()
+      .setCustomId('lfgforum:select:time')
+      .setPlaceholder('4. Choose a start time')
+      .addOptions(
+        buildTimeOptions().map((o) => ({
+          value: o.value,
+          label: o.label,
+          default: session.time === o.value,
+        }))
+      );
+    rows.push(new ActionRowBuilder().addComponents(timeSelect));
+  }
 
-  const rows = [
-    new ActionRowBuilder().addComponents(roleSelect),
-    new ActionRowBuilder().addComponents(timeSelect),
-    new ActionRowBuilder().addComponents(durationSelect),
-    new ActionRowBuilder().addComponents(sizeSelect),
-  ];
-
-  if (session.role && session.time && session.duration && session.size) {
-    const createButton = new ButtonBuilder()
-      .setCustomId('lfgforum:create')
-      .setLabel('Create Forum Post')
-      .setStyle(ButtonStyle.Success);
-    rows.push(new ActionRowBuilder().addComponents(createButton));
+  if (session.category && session.activity && session.size && session.time) {
+    const durationSelect = new StringSelectMenuBuilder()
+      .setCustomId('lfgforum:select:duration')
+      .setPlaceholder('5. Choose a duration')
+      .addOptions(
+        DURATION_OPTIONS.map((o) => ({
+          value: o.value,
+          label: o.label,
+          default: session.duration === o.value,
+        }))
+      );
+    rows.push(new ActionRowBuilder().addComponents(durationSelect));
   }
 
   return rows;
@@ -107,13 +124,20 @@ function buildSetupComponents(session) {
 
 function buildSetupContent(session) {
   const parts = [];
-  if (session.role) parts.push(`**Activity:** ${findRoleOption(session.role)?.label ?? '?'}`);
+  if (session.category) parts.push(`**Category:** ${findCategoryOption(session.category)?.label ?? '?'}`);
+  if (session.category && session.activity) {
+    const opt = findActivityOption(session.category, session.activity);
+    parts.push(`**Activity:** ${opt?.label ?? '?'}`);
+  }
+  if (session.category && session.activity && session.size) {
+    const activityOption = findActivityOption(session.category, session.activity);
+    parts.push(`**Size:** ${findSizeOption(activityOption.maxPlayers, session.size)?.label ?? '?'}`);
+  }
   if (session.time) parts.push(`**Start:** ${findTimeOption(session.time)?.label ?? '?'}`);
   if (session.duration) parts.push(`**Duration:** ${findDurationOption(session.duration)?.label ?? '?'}`);
-  if (session.size) parts.push(`**Size:** ${findSizeOption(session.size)?.label ?? '?'}`);
 
   const summary = parts.length ? parts.join('  •  ') + '\n\n' : '';
-  return `${summary}Pick an activity, a start time, a duration, and a group size, then hit **Create Forum Post**. You'll be asked for an optional description next.`;
+  return `${summary}Pick a category, an activity, a group size, a start time, and a duration. You'll be asked for an optional description once all five are picked.`;
 }
 
 async function sendSetupMenu(interaction) {
@@ -135,19 +159,30 @@ async function sendSetupMenu(interaction) {
 async function handleSetupSelect(interaction, field) {
   const session = getSession(interaction.user.id);
   session[field] = interaction.values[0];
+
+  if (field === 'category') {
+    session.activity = null;
+    session.size = null;
+    session.time = null;
+    session.duration = null;
+  }
+  if (field === 'activity') {
+    session.size = null;
+  }
+
+  const allFilled = session.category && session.activity && session.size && session.time && session.duration;
+  if (allFilled) {
+    return openDescriptionModal(interaction);
+  }
+
   await interaction.update({
     content: buildSetupContent(session),
     components: buildSetupComponents(session),
   });
 }
 
-// ---- Step 1: "Create Forum Post" button opens a description modal ----
-async function handleCreateButton(interaction) {
-  const session = getSession(interaction.user.id);
-  if (!session.role || !session.time || !session.duration || !session.size) {
-    return interaction.reply({ content: '⚠️ Please pick all four options first.', flags: MessageFlags.Ephemeral });
-  }
-
+// ---- Once all 5 dropdowns are filled: open the description modal directly ----
+async function openDescriptionModal(interaction) {
   const modal = new ModalBuilder()
     .setCustomId('lfgforum:desc')
     .setTitle('Add a description');
@@ -164,26 +199,27 @@ async function handleCreateButton(interaction) {
   await interaction.showModal(modal);
 }
 
-// ---- Step 2: modal submit actually creates the forum post ----
+// ---- Modal submit actually creates the forum post ----
 async function handleDescriptionModalSubmit(interaction) {
   const session = getSession(interaction.user.id);
-  if (!session.role || !session.time || !session.duration || !session.size) {
+  if (!session.category || !session.activity || !session.size || !session.time || !session.duration) {
     return interaction.reply({
       content: '⚠️ Something went wrong finding your selections — please run /lfg-forum again.',
       flags: MessageFlags.Ephemeral,
     });
   }
 
-  const roleOption = findRoleOption(session.role);
+  const categoryOption = findCategoryOption(session.category);
+  const activityOption = findActivityOption(session.category, session.activity);
+  const sizeOption = findSizeOption(activityOption.maxPlayers, session.size);
   const timeOption = findTimeOption(session.time);
   const durationOption = findDurationOption(session.duration);
-  const sizeOption = findSizeOption(session.size);
   const description = interaction.fields.getTextInputValue('description')?.trim() || null;
 
-  const guildRole = interaction.guild.roles.cache.find((r) => r.name === roleOption.roleName);
+  const guildRole = interaction.guild.roles.cache.find((r) => r.name === activityOption.roleName);
   if (!guildRole) {
     return interaction.reply({
-      content: `⚠️ The role **${roleOption.roleName}** doesn't exist yet. Ask an admin to create it.`,
+      content: `⚠️ The role **${activityOption.roleName}** doesn't exist yet. Ask an admin to create it.`,
       flags: MessageFlags.Ephemeral,
     });
   }
@@ -197,25 +233,26 @@ async function handleDescriptionModalSubmit(interaction) {
   }
 
   const groupId = makeGroupId();
-  const sizeCap = sizeOption.value === 'any' ? Infinity : parseInt(sizeOption.value, 10);
   const timeEpoch = parseInt(timeOption.value, 10);
   const durationMinutes = parseInt(durationOption.value, 10);
   const endEpoch = timeEpoch + durationMinutes * 60;
-  const baseTitle = `${roleOption.label} — Start: ${timeOption.label} — ${durationOption.label} — ${sizeOption.label}`;
+  const sizeCap = parseInt(sizeOption.value, 10);
+  const roleLabel = `${categoryOption.label}: ${activityOption.label}`;
+  const baseTitle = `${roleLabel} — Start: ${timeOption.label} — ${durationOption.label} — ${sizeOption.label}`;
 
   const group = {
     id: groupId,
     creatorId: interaction.user.id,
     creatorTag: interaction.user.username,
-    roleLabel: roleOption.label,
+    roleLabel,
     timeEpoch,
     durationLabel: durationOption.label,
     durationMinutes,
     endEpoch,
     sizeLabel: sizeOption.label,
+    sizeCap,
     description,
     baseTitle,
-    sizeCap,
     members: new Set([interaction.user.id]),
     status: 'open',
     threadId: null,
@@ -229,7 +266,7 @@ async function handleDescriptionModalSubmit(interaction) {
   // Auto-apply a matching forum tag if one exists with the same name as the role
   // (e.g. a tag literally called "Yama"). Entirely optional — skipped if none matches.
   const matchingTag = forumChannel.availableTags?.find(
-    (t) => t.name.toLowerCase() === roleOption.roleName.toLowerCase()
+    (t) => t.name.toLowerCase() === activityOption.roleName.toLowerCase()
   );
 
   // Description (if provided) leads the message content so it shows in the
@@ -283,7 +320,7 @@ async function handleJoinButton(interaction, groupId) {
   }
 
   group.members.add(interaction.user.id);
-  const justFilled = group.sizeCap !== Infinity && group.members.size >= group.sizeCap;
+  const justFilled = group.members.size >= group.sizeCap;
   if (justFilled) {
     group.status = 'closed';
   }
@@ -374,14 +411,8 @@ function scheduleForumGroupCleanup(client, group, delayMs) {
 // ---- Entry points called from eventHandler.js ----
 async function handleLfgForumSelectInteraction(interaction) {
   const field = interaction.customId.split(':')[2]; // "lfgforum:select:<field>"
-  if (!['role', 'time', 'duration', 'size'].includes(field)) return;
+  if (!['category', 'activity', 'size', 'time', 'duration'].includes(field)) return;
   return handleSetupSelect(interaction, field);
-}
-
-async function handleLfgForumButtonInteraction(interaction) {
-  if (interaction.customId === 'lfgforum:create') {
-    return handleCreateButton(interaction);
-  }
 }
 
 async function handleLfgForumModalSubmit(interaction) {
@@ -400,7 +431,6 @@ async function handleLfgForumGroupButtonInteraction(interaction) {
 module.exports = {
   sendSetupMenu,
   handleLfgForumSelectInteraction,
-  handleLfgForumButtonInteraction,
   handleLfgForumModalSubmit,
   handleLfgForumGroupButtonInteraction,
 };
