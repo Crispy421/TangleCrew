@@ -220,18 +220,17 @@ async function handleDescriptionModalSubmit(interaction) {
   const timeEpoch = resolveTimeEpoch(timeOption.value);
   const sizeCap = parseSizeCap(sizeOption.value);
   const roleLabel = `${categoryOption.label}: ${activityOption.label}`;
-  const baseTitle = `${roleLabel} — Start: ${timeOption.label} — ${sizeOption.label}`;
 
   const group = {
     id: groupId,
     creatorId: interaction.user.id,
     creatorTag: interaction.user.username,
     roleLabel,
+    startLabel: timeOption.label,
     timeEpoch,
     sizeLabel: sizeOption.label,
     sizeCap,
     description,
-    baseTitle,
     members: new Set([interaction.user.id]),
     status: 'open',
     threadId: null,
@@ -256,7 +255,7 @@ async function handleDescriptionModalSubmit(interaction) {
     : `<@&${guildRole.id}>`;
 
   const thread = await forumChannel.threads.create({
-    name: `[Open] ${baseTitle}`,
+    name: buildThreadName(group, 'Open'),
     appliedTags: matchingTag ? [matchingTag.id] : [],
     message: {
       content: startContent,
@@ -280,9 +279,24 @@ async function handleDescriptionModalSubmit(interaction) {
   setTimeout(() => interaction.deleteReply().catch(() => {}), 30000);
 }
 
-async function renameThread(interaction, group, prefixWord) {
+// Builds the full thread title fresh from current group state, so it always
+// reflects the live member count (e.g. "Members (2/5)") rather than a
+// snapshot taken at creation time.
+function buildThreadName(group, statusWord) {
+  const capDisplay = group.sizeCap === Infinity ? 'Mass' : String(group.sizeCap);
+  // Note: Discord thread/channel names are plain text only — this shows the
+  // creator's name for reference, but it can't be a real clickable @mention
+  // or trigger a notification the way an in-message mention does.
+  return `[${statusWord}] @${group.creatorTag} — ${group.roleLabel} — Start: ${group.startLabel} — Members (${group.members.size}/${capDisplay})`;
+}
+
+function statusWordFor(group) {
+  return group.status === 'closed' ? 'Full' : 'Open';
+}
+
+async function renameThread(interaction, group) {
   try {
-    await interaction.channel.setName(`[${prefixWord}] ${group.baseTitle}`);
+    await interaction.channel.setName(buildThreadName(group, statusWordFor(group)));
   } catch (err) {
     console.error(`Could not rename LFG forum thread ${group.id}:`, err.message);
   }
@@ -311,9 +325,9 @@ async function handleJoinButton(interaction, groupId) {
 
   await interaction.update({ embeds: [embed], components: [row] });
   await interaction.followUp({ content: '✅ You joined the group!', flags: MessageFlags.Ephemeral });
+  await renameThread(interaction, group);
 
   if (justFilled) {
-    await renameThread(interaction, group, 'Full');
     const mentions = [...group.members].map((id) => `<@${id}>`).join(' ');
     await interaction.channel.send({ content: `${mentions}\n🎉 **Group formed, Good luck!**` });
     scheduleForumGroupCleanup(interaction.client, group, GROUP_FORMED_CLEANUP_DELAY_MS);
@@ -337,6 +351,7 @@ async function handleLeaveButton(interaction, groupId) {
   const row = buildGroupRow(groupId, group.status, 'lfgforumgroup');
   await interaction.update({ embeds: [embed], components: [row] });
   await interaction.followUp({ content: 'You left the group.', flags: MessageFlags.Ephemeral });
+  await renameThread(interaction, group);
 
   if (group.members.size > 0) {
     const mentions = [...group.members].map((id) => `<@${id}>`).join(' ');
@@ -357,7 +372,7 @@ async function handleCloseButton(interaction, groupId) {
   const embed = buildGroupEmbed(group);
   const row = buildGroupRow(groupId, 'closed', 'lfgforumgroup');
   await interaction.update({ embeds: [embed], components: [row] });
-  await renameThread(interaction, group, 'Full');
+  await renameThread(interaction, group);
 
   const mentions = [...group.members].map((id) => `<@${id}>`).join(' ');
   await interaction.channel.send({ content: `${mentions}\n🎉 **Group formed, Good luck!**` });
@@ -378,7 +393,7 @@ async function handleReopenButton(interaction, groupId) {
   const embed = buildGroupEmbed(group);
   const row = buildGroupRow(groupId, 'open', 'lfgforumgroup');
   await interaction.update({ embeds: [embed], components: [row] });
-  await renameThread(interaction, group, 'Open');
+  await renameThread(interaction, group);
 
   const mentions = [...group.members].map((id) => `<@${id}>`).join(' ');
   await interaction.channel.send({ content: `${mentions}\n🔓 **This group has been reopened and is accepting new members again!**` });
