@@ -14,6 +14,7 @@ const { CATEGORIES } = require('./roleMenu');
 const CATEGORY_OPTIONS = [
   { key: 'raids', label: 'Raid' },
   { key: 'bossing', label: 'Boss' },
+  { key: 'minigames', label: 'Skilling/Minigame' },
 ];
 
 function findCategoryOption(key) {

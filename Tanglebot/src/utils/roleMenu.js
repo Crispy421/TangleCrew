@@ -11,10 +11,22 @@ const {
 // the menu message itself.
 const MENU_MESSAGE_LIFETIME_MS = 60 * 1000;
 
+// Builds a size-options list of 2..max players, plus an appended "Mass"
+// option — used for activities marked "N/mass" (uncapped mass version).
+function sizeRangeWithMass(max) {
+  const options = [];
+  for (let n = 2; n <= max; n++) {
+    options.push({ value: String(n), label: `${n} Players` });
+  }
+  options.push({ value: 'mass', label: 'Mass' });
+  return options;
+}
+
 // ---- Category definitions ----
-// Each category gets its own top-level button (shown by /setup-roles),
+// Each category gets its own top-level button (shown by /lfg-pings),
 // which opens a follow-up ephemeral menu with one toggle button per role.
-// Role names must exactly match roles that exist in your server.
+// The same data also feeds the /lfg and /lfg-forum Category -> Activity
+// accordion. Role names must exactly match roles that exist in your server.
 const CATEGORIES = {
   bossing: {
     key: 'bossing',
@@ -27,9 +39,20 @@ const CATEGORIES = {
     // pet image, then replace PUT_EMOJI_ID_HERE with its real ID.
     roles: [
       { value: 'yama', label: 'Yama', emoji: { name: 'yami', id: 'PUT_EMOJI_ID_HERE' }, roleName: 'Yama', maxPlayers: 2 },
-      { value: 'nightmare', label: 'Nightmare', emoji: { name: 'littlenightmare', id: 'PUT_EMOJI_ID_HERE' }, roleName: 'Nightmare', maxPlayers: 6 },
-      { value: 'royal_titans', label: 'Royal Titans', emoji: { name: 'branric', id: 'PUT_EMOJI_ID_HERE' }, roleName: 'Royal Titans', maxPlayers: 2 },
-      { value: 'hueycoatl', label: 'Hueycoatl', emoji: { name: 'huberte', id: 'PUT_EMOJI_ID_HERE' }, roleName: 'Hueycoatl', maxPlayers: 5 },
+      { value: 'nightmare', label: 'Nightmare', emoji: { name: 'littlenightmare', id: 'PUT_EMOJI_ID_HERE' }, roleName: 'Nightmare', maxPlayers: 5, sizeOptions: sizeRangeWithMass(5) },
+      { value: 'royal_titans', label: 'Titans', emoji: { name: 'branric', id: 'PUT_EMOJI_ID_HERE' }, roleName: 'Royal Titans', maxPlayers: 2 },
+      { value: 'hueycoatl', label: 'Huey', emoji: { name: 'huberte', id: 'PUT_EMOJI_ID_HERE' }, roleName: 'Hueycoatl', maxPlayers: 5 },
+      { value: 'callisto', label: 'Callisto', roleName: 'Callisto', maxPlayers: 5 },
+      { value: 'zilyana', label: 'Zilyana', roleName: 'Zilyana', maxPlayers: 5 },
+      { value: 'corp', label: 'Corp', roleName: 'Corp', maxPlayers: 10 },
+      { value: 'dks', label: 'DKS', roleName: 'DKS', maxPlayers: 3 },
+      { value: 'graardor', label: 'Graardor', roleName: 'Graardor', maxPlayers: 5 },
+      { value: 'kril', label: 'Kril', roleName: 'Kril', maxPlayers: 5 },
+      { value: 'kree', label: 'Kree', roleName: 'Kree', maxPlayers: 5 },
+      { value: 'nex', label: 'Nex', roleName: 'Nex', maxPlayers: 5, sizeOptions: sizeRangeWithMass(5) },
+      { value: 'scurrius', label: 'Scurrius', roleName: 'Scurrius', maxPlayers: 5 },
+      { value: 'venenatis', label: 'Venenatis', roleName: 'Venenatis', maxPlayers: 5 },
+      { value: 'vetion', label: 'Vet\'ion', roleName: 'Vet\'ion', maxPlayers: 5 },
     ],
   },
   raids: {
@@ -39,16 +62,25 @@ const CATEGORIES = {
     buttonStyle: ButtonStyle.Primary,
     prompt: 'Pick the raids you want to be pingable for. Selected ones turn red and stay red until you click them again.',
     roles: [
-      { value: 'cox', label: 'CoX', emoji: { name: 'olmlet', id: 'PUT_EMOJI_ID_HERE' }, roleName: 'CoX', maxPlayers: 7,
-        sizeOptions: [
-          { value: '2', label: '2 Players' },
-          { value: '3', label: '3 Players' },
-          { value: '4', label: '4 Players' },
-          { value: '5', label: '5 Players' },
-          { value: 'mass', label: 'Mass' },
-        ] },
+      { value: 'barb_assault', label: 'Barb Assault', roleName: 'Barb Assault', maxPlayers: 5 },
+      { value: 'cox', label: 'CoX', emoji: { name: 'olmlet', id: 'PUT_EMOJI_ID_HERE' }, roleName: 'CoX', maxPlayers: 7, sizeOptions: sizeRangeWithMass(7) },
       { value: 'toa', label: 'ToA', emoji: { name: 'tumekensguardian', id: 'PUT_EMOJI_ID_HERE' }, roleName: 'ToA', maxPlayers: 8 },
       { value: 'tob', label: 'ToB', emoji: { name: 'lilzik', id: 'PUT_EMOJI_ID_HERE' }, roleName: 'ToB', maxPlayers: 5 },
+    ],
+  },
+  minigames: {
+    key: 'minigames',
+    buttonLabel: 'Skilling/Minigame',
+    buttonEmoji: '⚒️',
+    buttonStyle: ButtonStyle.Primary,
+    prompt: 'Pick the skilling activities/minigames you want to be pingable for. Selected ones turn red and stay red until you click them again.',
+    roles: [
+      { value: 'tempoross', label: 'Tempoross', roleName: 'Tempoross', maxPlayers: 10 },
+      { value: 'zalcano', label: 'Zalcano', roleName: 'Zalcano', maxPlayers: 10 },
+      { value: 'wintertodt', label: 'Wintertodt', roleName: 'Wintertodt', maxPlayers: 10 },
+      { value: 'gotr', label: 'GOTR', roleName: 'GOTR', maxPlayers: 10 },
+      { value: 'soul_wars', label: 'Soul Wars', roleName: 'Soul Wars', maxPlayers: 10, sizeOptions: sizeRangeWithMass(10) },
+      { value: 'castle_wars', label: 'Castle Wars', roleName: 'Castle Wars', maxPlayers: 10, sizeOptions: sizeRangeWithMass(10) },
     ],
   },
 };
