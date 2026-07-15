@@ -317,6 +317,9 @@ async function handleJoinButton(interaction, groupId) {
     const mentions = [...group.members].map((id) => `<@${id}>`).join(' ');
     await interaction.channel.send({ content: `${mentions}\n🎉 **Group formed, Good luck!**` });
     scheduleForumGroupCleanup(interaction.client, group, GROUP_FORMED_CLEANUP_DELAY_MS);
+  } else {
+    const mentions = [...group.members].map((id) => `<@${id}>`).join(' ');
+    await interaction.channel.send({ content: `${mentions}\n🔔 <@${interaction.user.id}> joined the group!` });
   }
 }
 
@@ -334,6 +337,11 @@ async function handleLeaveButton(interaction, groupId) {
   const row = buildGroupRow(groupId, group.status, 'lfgforumgroup');
   await interaction.update({ embeds: [embed], components: [row] });
   await interaction.followUp({ content: 'You left the group.', flags: MessageFlags.Ephemeral });
+
+  if (group.members.size > 0) {
+    const mentions = [...group.members].map((id) => `<@${id}>`).join(' ');
+    await interaction.channel.send({ content: `${mentions}\n⚠️ <@${interaction.user.id}> left the group.` });
+  }
 }
 
 async function handleCloseButton(interaction, groupId) {
@@ -371,6 +379,9 @@ async function handleReopenButton(interaction, groupId) {
   const row = buildGroupRow(groupId, 'open', 'lfgforumgroup');
   await interaction.update({ embeds: [embed], components: [row] });
   await renameThread(interaction, group, 'Open');
+
+  const mentions = [...group.members].map((id) => `<@${id}>`).join(' ');
+  await interaction.channel.send({ content: `${mentions}\n🔓 **This group has been reopened and is accepting new members again!**` });
 
   scheduleForumGroupCleanup(interaction.client, group, computeStartTimeCleanupDelay(group.timeEpoch));
 }

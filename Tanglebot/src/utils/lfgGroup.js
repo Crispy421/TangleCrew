@@ -386,6 +386,9 @@ async function handleJoinButton(interaction, groupId) {
     });
     group.formedMessageId = formedMessage.id;
     scheduleGroupCleanup(interaction.client, group, GROUP_FORMED_CLEANUP_DELAY_MS);
+  } else {
+    const mentions = [...group.members].map((id) => `<@${id}>`).join(' ');
+    await interaction.channel.send({ content: `${mentions}\n🔔 <@${interaction.user.id}> joined the group!` });
   }
 }
 
@@ -403,6 +406,11 @@ async function handleLeaveButton(interaction, groupId) {
   const row = buildGroupRow(groupId, group.status);
   await interaction.update({ embeds: [embed], components: [row] });
   await interaction.followUp({ content: 'You left the group.', flags: MessageFlags.Ephemeral });
+
+  if (group.members.size > 0) {
+    const mentions = [...group.members].map((id) => `<@${id}>`).join(' ');
+    await interaction.channel.send({ content: `${mentions}\n⚠️ <@${interaction.user.id}> left the group.` });
+  }
 }
 
 async function handleCloseButton(interaction, groupId) {
@@ -441,6 +449,9 @@ async function handleReopenButton(interaction, groupId) {
   const embed = buildGroupEmbed(group);
   const row = buildGroupRow(groupId, 'open');
   await interaction.update({ embeds: [embed], components: [row] });
+
+  const mentions = [...group.members].map((id) => `<@${id}>`).join(' ');
+  await interaction.channel.send({ content: `${mentions}\n🔓 **This group has been reopened and is accepting new members again!**` });
 
   // Back to the original expiry rule now that it's open again.
   scheduleGroupCleanup(interaction.client, group, computeStartTimeCleanupDelay(group.timeEpoch));
