@@ -287,7 +287,7 @@ function buildThreadName(group, statusWord) {
   // Note: Discord thread/channel names are plain text only — this shows the
   // creator's name for reference, but it can't be a real clickable @mention
   // or trigger a notification the way an in-message mention does.
-  return `[${statusWord}] @${group.creatorTag} — ${group.roleLabel} — Start: ${group.startLabel} — Members (${group.members.size}/${capDisplay})`;
+  return `[${statusWord}] - ${group.roleLabel} - Start: ${group.startLabel} - @${group.creatorTag} - Members (${group.members.size}/${capDisplay})`;
 }
 
 function statusWordFor(group) {
