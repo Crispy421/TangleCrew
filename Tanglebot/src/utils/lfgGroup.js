@@ -213,7 +213,15 @@ async function handleSetupSelect(interaction, field) {
     session.time = null;
   }
   if (field === 'activity') {
+    // Size options depend on the chosen activity's max player count.
     session.size = null;
+    const activityOption = findActivityOption(session.category, session.activity);
+    const sizeChoices = buildSizeOptions(activityOption);
+    if (sizeChoices.length === 1) {
+      // Only one possible size (e.g. Yama, max 2) — no real choice to make,
+      // so skip straight past this step instead of making them click it.
+      session.size = sizeChoices[0].value;
+    }
   }
 
   const allFilled = session.category && session.activity && session.size && session.time;
