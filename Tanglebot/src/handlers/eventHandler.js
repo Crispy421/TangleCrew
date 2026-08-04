@@ -9,14 +9,14 @@ const {
 } = require('../utils/honeypot');
 const { handleRoleMenuButtonInteraction } = require('../utils/roleMenu');
 const {
-  handleLfgSelectInteraction,
-  handleLfgGroupButtonInteraction,
-} = require('../utils/lfgGroup');
+  handleLfgPostSelectInteraction,
+  handleLfgPostModalSubmit,
+  handleLfgPostGroupButtonInteraction,
+} = require('../utils/lfgPost');
 const {
-  handleLfgForumSelectInteraction,
-  handleLfgForumModalSubmit,
-  handleLfgForumGroupButtonInteraction,
-} = require('../utils/lfgForum');
+  handleLfgSuggestionSelectInteraction,
+  handleLfgSuggestionModalSubmit,
+} = require('../utils/lfgSuggestion');
 
 function loadEvents(client) {
   const submissionConfig = loadSubmissionConfig();
@@ -90,18 +90,11 @@ function loadEvents(client) {
           console.error('Role menu button interaction error:', err);
           await replyOrFollowUp(interaction, 'Something went wrong updating your roles.');
         }
-      } else if (interaction.customId.startsWith('lfggroup:')) {
+      } else if (interaction.customId.startsWith('lfgpostgroup:')) {
         try {
-          await handleLfgGroupButtonInteraction(interaction);
+          await handleLfgPostGroupButtonInteraction(interaction);
         } catch (err) {
-          console.error('LFG group button interaction error:', err);
-          await replyOrFollowUp(interaction, 'Something went wrong updating that group.');
-        }
-      } else if (interaction.customId.startsWith('lfgforumgroup:')) {
-        try {
-          await handleLfgForumGroupButtonInteraction(interaction);
-        } catch (err) {
-          console.error('LFG forum group button interaction error:', err);
+          console.error('LFG post group button interaction error:', err);
           await replyOrFollowUp(interaction, 'Something went wrong updating that group.');
         }
       }
@@ -109,31 +102,38 @@ function loadEvents(client) {
     }
 
     if (interaction.isStringSelectMenu()) {
-      if (interaction.customId.startsWith('lfgforum:')) {
+      if (interaction.customId.startsWith('lfgpost:')) {
         try {
-          await handleLfgForumSelectInteraction(interaction);
+          await handleLfgPostSelectInteraction(interaction);
         } catch (err) {
-          console.error('LFG forum select interaction error:', err);
-          await replyOrFollowUp(interaction, 'Something went wrong updating your LFG forum setup.');
+          console.error('LFG post select interaction error:', err);
+          await replyOrFollowUp(interaction, 'Something went wrong updating your LFG post setup.');
         }
-      } else if (interaction.customId.startsWith('lfg:')) {
+      } else if (interaction.customId.startsWith('lfgsuggestion:')) {
         try {
-          await handleLfgSelectInteraction(interaction);
+          await handleLfgSuggestionSelectInteraction(interaction);
         } catch (err) {
-          console.error('LFG select interaction error:', err);
-          await replyOrFollowUp(interaction, 'Something went wrong updating your LFG setup.');
+          console.error('LFG suggestion select interaction error:', err);
+          await replyOrFollowUp(interaction, 'Something went wrong with your suggestion.');
         }
       }
       return;
     }
 
     if (interaction.isModalSubmit()) {
-      if (interaction.customId.startsWith('lfgforum:')) {
+      if (interaction.customId.startsWith('lfgpost:')) {
         try {
-          await handleLfgForumModalSubmit(interaction);
+          await handleLfgPostModalSubmit(interaction);
         } catch (err) {
-          console.error('LFG forum modal submit error:', err);
-          await replyOrFollowUp(interaction, 'Something went wrong creating your LFG forum post.');
+          console.error('LFG post modal submit error:', err);
+          await replyOrFollowUp(interaction, 'Something went wrong creating your LFG post.');
+        }
+      } else if (interaction.customId.startsWith('lfgsuggestion:')) {
+        try {
+          await handleLfgSuggestionModalSubmit(interaction);
+        } catch (err) {
+          console.error('LFG suggestion modal submit error:', err);
+          await replyOrFollowUp(interaction, 'Something went wrong sending your suggestion.');
         }
       }
       return;

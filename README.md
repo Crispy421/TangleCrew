@@ -86,25 +86,26 @@ This command is only loaded if `DONATIONS_SHEET_URL` and `DONATIONS_CHANNEL_ID` 
 
 ---
 
-### 🔔 `/lfg-pings` — Event Notification Roles
+### 🔔 `/lfg-roles` — Event Notification Roles
 
 Lets members self-assign notification roles for specific bosses, raids, and skilling/minigame activities, so they only get pinged for exactly what they're interested in.
 
 **When to use it:**
 - Opting in to pings for a specific boss, raid, or minigame without staff having to manage roles by hand
-- Getting notified the moment someone starts an `/lfg-forum` group for something you're interested in
+- Getting notified the moment someone starts an `/lfg-post` group for something you're interested in
 
 **How it works:**
 1. Running the command opens a private (ephemeral) menu with three categories: **Bossing**, **Raids**, and **Skilling/Minigame**.
 2. Clicking a category opens a private submenu listing that category's specific activities (e.g. Yama, CoX, Tempoross), shown with pet emojis where configured.
 3. Clicking an activity toggles that role on or off — selected roles turn red and stay red until clicked again.
 4. Once a member has a role, anyone can `@mention` it to notify everyone who's opted in.
+5. A **Clear All LFG Roles** button on the main menu removes every `LFG-` role the member has in one click.
 
-**Setup:** requires all activity roles to exist in the server with matching names (the full list lives in `src/utils/roleMenu.js`), the bot's role positioned above them, and — optionally — custom pet emojis uploaded and their IDs added for a nicer-looking menu.
+**Setup:** the bot auto-creates any missing activity role (prefixed `LFG-`, e.g. `LFG-Yama`; full list in `src/utils/roleMenu.js`) the first time it's needed — no manual role setup required. Needs the **Manage Roles** permission, with the bot's own role positioned above the `LFG-` roles once created. Optionally, upload custom pet emojis and add their IDs for a nicer-looking menu.
 
 ---
 
-### 🔍 `/lfg-forum` — Looking For Group (Forum Posts)
+### 🔍 `/lfg-post` — Looking For Group (Forum Posts)
 
 Creates a post in a configured Forum Channel so members can find and join a group for a specific activity, with automatic role pings, live member tracking, and self-cleanup.
 
@@ -113,14 +114,13 @@ Creates a post in a configured Forum Channel so members can find and join a grou
 - Browsing the LFG forum channel to see every currently open group at a glance
 
 **How it works:**
-1. Running the command opens a private, step-by-step menu: **Category** (Raid / Boss / Skilling-Minigame) → **Activity** → **Group Size** (auto-ranged to that activity's max — some activities also offer a "Mass" option) → **Start Time** (relative offsets like *Now*, *15 Min*, *1 Hour* — no timezone guesswork required).
+1. Running the command opens a private, step-by-step menu: **Category** (Boss / Raid / Skilling-Minigame) → **Activity** → **Group Size** (auto-ranged to that activity's max — some activities also offer a "Mass" option) → **Start Time** (relative offsets like *Now*, *15 Min*, *1 Hour* — no timezone guesswork required).
 2. After the last selection, an optional **description** prompt appears.
-3. The bot creates a forum post pinging the matching role, with a live-updating title —
-   `[Open] - Category: Activity - Start: X - @creator - Members (Y/Z)` — and an embed with the full details.
-4. Anyone can **Join** or **Leave** from the post. Anyone can also **Close** it early (locks joining, pings the group) or **Disband** it (cancels immediately). A closed/full group can be **Reopened** if someone drops out.
-5. The post deletes itself automatically once its start time passes (15-minute minimum lifetime) or 5 minutes after the group closes/fills.
+3. The bot creates a forum post pinging the matching role, titled `[Open] - Category: Activity - Start: X` — and an embed with the full details (including who started it), with a live member list that updates on every join/leave.
+4. Anyone can **Join** or **Leave** from the post. **Disband** (cancels immediately) is limited to current group members or Coordinator+ staff. Once the group hits its size cap it auto-closes (locks joining, pings "Good luck!") — and auto-reopens the moment someone leaves and frees up a spot.
+5. The post deletes itself automatically once its start time passes (15-minute minimum lifetime), 5 minutes after the group fills, or 30 minutes after everyone leaves an otherwise-still-open post.
 
-**Setup:** requires `LFG_FORUM_CHANNEL_ID` set to a Forum Channel, the same activity roles as `/lfg-pings`, and the bot's role with **Manage Threads** (needed to rename/delete forum posts) in addition to the other permissions below.
+**Setup:** requires `LFG_FORUM_CHANNEL_ID` set to a Forum Channel, the same auto-created activity roles as `/lfg-roles`, and the bot's role with **Manage Threads** (needed to rename/delete forum posts) in addition to the other permissions below.
 
 ---
 
@@ -246,7 +246,7 @@ OWNER_ID=your_discord_user_id
 OWNER_ROLE_ID=your_owner_role_id
 COORDINATOR_ROLE_ID=your_coordinator_role_id
 
-# Optional LFG forum posts (/lfg-forum)
+# Optional LFG forum posts (/lfg-post)
 LFG_FORUM_CHANNEL_ID=your_lfg_forum_channel_id
 
 # Optional announcement cleanup
